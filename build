@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+sudo podman build -t faibuilder:24.04  --build-arg SRC_PREFIX=fai_6.4.2-0~202505230840~ubuntu22.04.1 .
