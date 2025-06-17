@@ -4,12 +4,14 @@ set -euo pipefail
 
 sudo podman \
 	run \
-	-it \
-	--entrypoint /bin/bash \
 	--privileged \
 	--rm  \
 	--name faibuilder \
-	-v ./config:/srv/fai/config:ro,Z \
-	-v ./mirror:/srv/fai/mirror:Z \
-	-v ./output:/output:Z \
-	faibuilder:24.04
+	-v ./fai/faibuilder.conf:/srv/fai/faibuilder.conf:ro,z \
+	-v ./fai/config:/srv/fai/config:z \
+	-v ./fai/mirror:/srv/fai/mirror:z \
+	-v ./fai/nfsroot:/srv/fai/nfsroot:z \
+	-v ./fai/output:/srv/fai/output:z \
+	-it \
+	--entrypoint /bin/bash \
+	faibuilder:trixie
