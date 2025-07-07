@@ -45,7 +45,7 @@ echo
 echo "echo ${CLASSES//,/ }" >/srv/fai/config/class/95-fai.me
 chmod +x /srv/fai/config/class/95-fai.me
 fai-cd     \
-           -g /srv/fai/config/grub.cfg.install-only \
+           -g /srv/fai/config/grub.cfg \
            -m "${MIRROR_DIR}" \
            "${OUTPUT_DIR}/faicd.iso"
 echo
