@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-sudo podman build -t faibuilder:trixie -f Containerfile
