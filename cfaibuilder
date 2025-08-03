@@ -1,0 +1,184 @@
+#!/usr/bin/env -S python3 -u
+
+import argparse
+
+import logging
+
+from pathlib import Path
+import sys
+import subprocess
+import shlex
+
+
+APPNAME = "faibuilder"
+IMAGENAME = f"{APPNAME}"
+CONTAINERFILE = "Containerfile"
+WORKSPACE = Path(f"/{APPNAME}")
+
+
+def subprocess_run_wrapper(
+    cmd: str, dryrun: bool = False, **kwargs
+) -> subprocess.CompletedProcess | None:
+    if kwargs.get("shell"):
+        wcmd = cmd
+    else:
+        wcmd = shlex.split(cmd)
+
+    if dryrun:
+        logging.info(f"[DRYRUN] {cmd}")
+        return None
+
+    logging.info(f"[EXECUTING] {cmd}")
+    return subprocess.run(wcmd, **kwargs)
+
+
+def build_image(sourcedir, dryrun: bool = False):
+    subprocess_run_wrapper(
+        cmd=(
+            "podman build "
+            f"-t {shlex.quote(IMAGENAME)} "
+            f"-f {shlex.quote(str(sourcedir / Path(CONTAINERFILE)))}"
+        ),
+        dryrun=dryrun,
+        check=True,
+    )
+
+
+def release(imagedir, args, dryrun: bool = False):
+    #            f"-v {str(imagedir)}:{str(WORKSPACE)}:Z "
+    subprocess_run_wrapper(
+        cmd=(
+            "podman run "
+            f"-name {shlex.quote(IMAGENAME)} "
+            "--rm"
+            f"-w {shlex.quote(str(WORKSPACE))} "
+            "--entrypoint release "
+            f"{shlex.quote(IMAGENAME)} "
+            f"{' '.join(args)}"
+        ),
+        dryrun=dryrun,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+
+
+def build(
+    conffile,
+    basefilesdir,
+    faiconfigdir,
+    faimirrordir,
+    fainfsrootdir,
+    outputdir,
+    args,
+    dryrun: bool = False,
+):
+    #        "-v /dev:/dev "
+    #        f"-v {str(imagedir)}:{str(WORKSPACE)}:Z "
+    subprocess_run_wrapper(
+        cmd=(
+            "podman "
+            "run "
+            f"--name {shlex.quote(str(IMAGENAME))} "
+            "--privileged "
+            "--rm "
+            f"-w {shlex.quote(str(WORKSPACE))} "
+            "-v ./fai/faibuilder.conf:/srv/fai/faibuilder.conf:ro,z "
+            "-v ./fai/basefiles:/srv/fai/basefiles:z "
+            "-v ./fai/config:/srv/fai/config:z "
+            "-v ./fai/mirror:/srv/fai/mirror:z "
+            "-v ./fai/nfsroot:/srv/fai/nfsroot:z "
+            "-v ./fai/output:/srv/fai/output:z "
+            f"{shlex.quote(str(IMAGENAME))} "
+            f"{' '.join(args)}"
+        ),
+        dryrun=dryrun,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+
+
+if __name__ == "__main__":
+    dryrun = False
+    logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+
+    parser = argparse.ArgumentParser(description="Run faibuilder in container")
+    parser.add_argument(
+        "--build", action="store_true", help=f"Build {IMAGENAME} container"
+    )
+    parser.add_argument(
+        "--sourcedir",
+        type=str,
+        default=".",
+        help="sourcedir for building container (default '.')",
+    )
+    parser.add_argument(
+        "--conffile",
+        type=str,
+        default=f"./{APPNAME}.conf",
+        help=f"{APPNAME} config file (default './{APPNAME}.conf')",
+    )
+    parser.add_argument(
+        "--basefilesdir",
+        type=str,
+        default="./basefiles",
+        help="Directory where fai basefiles are located (default './basefiles')",
+    )
+    parser.add_argument(
+        "--faiconfigdir",
+        type=str,
+        default="./config",
+        help="fai config dir (default './config')",
+    )
+    parser.add_argument(
+        "--faimirrordir",
+        type=str,
+        default="./mirror",
+        help="fai mirror dir (default './mirror')",
+    )
+    parser.add_argument(
+        "--fainfsrootdir",
+        type=str,
+        default="./nfsroot",
+        help="fai nfsroot dir (default './nfsroot')",
+    )
+    parser.add_argument(
+        "--outputdir",
+        type=str,
+        default="./output",
+        help="Directory where faibuilder output files are written (default './output')",
+    )
+    args, passthrough = parser.parse_known_args()
+
+    sourcedir = Path(args.sourcedir).expanduser().resolve()
+    conffile = Path(args.conffile).expanduser().resolve()
+    basefilesdir = Path(args.basefilesdir).expanduser().resolve()
+    faiconfigdir = Path(args.faiconfigdir).expanduser().resolve()
+    faimirrordir = Path(args.faimirrordir).expanduser().resolve()
+    fainfsrootdir = Path(args.fainfsrootdir).expanduser().resolve()
+    outputdir = Path(args.outputdir).expanduser().resolve()
+    logging.info(f"sourcedir: {str(sourcedir)}")
+    logging.info(f"conffile: {str(conffile)}")
+    logging.info(f"basefilesdir: {str(basefilesdir)}")
+    logging.info(f"faiconfigdir: {str(faiconfigdir)}")
+    logging.info(f"faimirrordir: {str(faimirrordir)}")
+    logging.info(f"fainfsrootdir: {str(fainfsrootdir)}")
+    logging.info(f"outputdir: {str(outputdir)}")
+
+    if args.build:
+        build_image(sourcedir=sourcedir, dryrun=dryrun)
+        sys.exit(0)
+
+    build(
+        conffile=conffile,
+        basefilesdir=basefilesdir,
+        faiconfigdir=faiconfigdir,
+        faimirrordir=faimirrordir,
+        fainfsrootdir=fainfsrootdir,
+        outputdir=outputdir,
+        args=passthrough,
+        dryrun=dryrun,
+    )

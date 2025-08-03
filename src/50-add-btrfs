@@ -1,0 +1,10 @@
+#!/bin/bash
+install -d -m 0755 "$NFSROOT/etc/dracut.conf.d"
+cat > "$NFSROOT/etc/dracut.conf.d/01-omit.conf" <<EOF
+omit_dracutmodules+=" crypt lvm resume usrmount modsign mdraid shutdown virtfs "
+filesystems="nfs lockd ext4 btrfs"
+
+EOF
+
+#chroot $NFSROOT update-initramfs -k all -c
+chroot $NFSROOT dracut -f --regenerate-all
