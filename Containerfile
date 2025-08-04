@@ -32,5 +32,9 @@ COPY src/faibuilder /usr/local/bin/faibuilder
 RUN chmod +x /usr/local/bin/faibuilder
 COPY src/50-add-btrfs /usr/local/etc/50-add-btrfs
 
+
+RUN mkdir -p /faibuilder
+WORKDIR /faibuilder
+
 ENTRYPOINT ["/usr/local/bin/faibuilder"]
 

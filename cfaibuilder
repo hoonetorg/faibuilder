@@ -57,14 +57,12 @@ def release(imagedir, args, dryrun: bool = False):
             f"{' '.join(args)}"
         ),
         dryrun=dryrun,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
         check=True,
     )
 
 
 def build(
+    interactive,
     conffile,
     basefilesdir,
     faiconfigdir,
@@ -74,6 +72,10 @@ def build(
     args,
     dryrun: bool = False,
 ):
+    ctrargs = "--rm "
+    if interactive:
+        ctrargs += "-it --entrypoint /bin/bash "
+
     #        "-v /dev:/dev "
     #        f"-v {str(imagedir)}:{str(WORKSPACE)}:Z "
     subprocess_run_wrapper(
@@ -82,28 +84,26 @@ def build(
             "run "
             f"--name {shlex.quote(str(IMAGENAME))} "
             "--privileged "
-            "--rm "
+            f"{ctrargs}"
             f"-w {shlex.quote(str(WORKSPACE))} "
-            "-v ./fai/faibuilder.conf:/srv/fai/faibuilder.conf:ro,z "
-            "-v ./fai/basefiles:/srv/fai/basefiles:z "
-            "-v ./fai/config:/srv/fai/config:z "
-            "-v ./fai/mirror:/srv/fai/mirror:z "
-            "-v ./fai/nfsroot:/srv/fai/nfsroot:z "
-            "-v ./fai/output:/srv/fai/output:z "
+            f"-v {shlex.quote(str(conffile))}:/srv/fai/faibuilder.conf:ro,z "
+            f"-v {shlex.quote(str(basefilesdir))}:/srv/fai/basefiles:z "
+            f"-v {shlex.quote(str(faiconfigdir))}:/srv/fai/config:z "
+            f"-v {shlex.quote(str(faimirrordir))}:/srv/fai/mirror:z "
+            f"-v {shlex.quote(str(fainfsrootdir))}:/srv/fai/nfsroot:z "
+            f"-v {shlex.quote(str(outputdir))}:/srv/fai/output:z "
             f"{shlex.quote(str(IMAGENAME))} "
             f"{' '.join(args)}"
         ),
         dryrun=dryrun,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
         check=True,
     )
 
 
 if __name__ == "__main__":
     dryrun = False
-    logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+
 
     parser = argparse.ArgumentParser(description="Run faibuilder in container")
     parser.add_argument(
@@ -114,6 +114,11 @@ if __name__ == "__main__":
         type=str,
         default=".",
         help="sourcedir for building container (default '.')",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Run container in interactive mode with /bin/bash",
     )
     parser.add_argument(
         "--conffile",
@@ -172,8 +177,10 @@ if __name__ == "__main__":
         build_image(sourcedir=sourcedir, dryrun=dryrun)
         sys.exit(0)
 
+
     build(
         conffile=conffile,
+        interactive=args.interactive,
         basefilesdir=basefilesdir,
         faiconfigdir=faiconfigdir,
         faimirrordir=faimirrordir,
