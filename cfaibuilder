@@ -9,6 +9,8 @@ import sys
 import subprocess
 import shlex
 
+import json
+
 
 APPNAME = "faibuilder"
 IMAGENAME = f"{APPNAME}"
@@ -30,6 +32,10 @@ def subprocess_run_wrapper(
 
     logging.info(f"[EXECUTING] {cmd}")
     return subprocess.run(wcmd, **kwargs)
+
+
+def get_path(path):
+    return Path(path).expanduser().absolute()
 
 
 def build_image(sourcedir, dryrun: bool = False):
@@ -63,7 +69,8 @@ def release(imagedir, args, dryrun: bool = False):
 
 def build(
     interactive,
-    conffile,
+    globalconffile,
+    hostconffile,
     basefilesdir,
     faiconfigdir,
     faimirrordir,
@@ -86,7 +93,8 @@ def build(
             "--privileged "
             f"{ctrargs}"
             f"-w {shlex.quote(str(WORKSPACE))} "
-            f"-v {shlex.quote(str(conffile))}:/srv/fai/faibuilder.conf:ro,z "
+            f"-v {shlex.quote(str(globalconffile))}:/srv/fai/faibuilder.json:ro,z "
+            f"-v {shlex.quote(str(hostconffile))}:/srv/fai/host.json:ro,z "
             f"-v {shlex.quote(str(basefilesdir))}:/srv/fai/basefiles:z "
             f"-v {shlex.quote(str(faiconfigdir))}:/srv/fai/config:z "
             f"-v {shlex.quote(str(faimirrordir))}:/srv/fai/mirror:z "
@@ -104,7 +112,6 @@ if __name__ == "__main__":
     dryrun = False
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
-
     parser = argparse.ArgumentParser(description="Run faibuilder in container")
     parser.add_argument(
         "--build", action="store_true", help=f"Build {IMAGENAME} container"
@@ -121,52 +128,77 @@ if __name__ == "__main__":
         help="Run container in interactive mode with /bin/bash",
     )
     parser.add_argument(
-        "--conffile",
+        "--globalconffile",
         type=str,
-        default=f"./{APPNAME}.conf",
-        help=f"{APPNAME} config file (default './{APPNAME}.conf')",
+        default=f"./{APPNAME}.json",
+        help=f"{APPNAME} config file (default './{APPNAME}.json')",
     )
     parser.add_argument(
-        "--basefilesdir",
+        "--hostconffile",
         type=str,
-        default="./basefiles",
-        help="Directory where fai basefiles are located (default './basefiles')",
+        default=f"./host.json",
+        help=f"Host config file (default './host.json')",
     )
-    parser.add_argument(
-        "--faiconfigdir",
-        type=str,
-        default="./config",
-        help="fai config dir (default './config')",
-    )
-    parser.add_argument(
-        "--faimirrordir",
-        type=str,
-        default="./mirror",
-        help="fai mirror dir (default './mirror')",
-    )
-    parser.add_argument(
-        "--fainfsrootdir",
-        type=str,
-        default="./nfsroot",
-        help="fai nfsroot dir (default './nfsroot')",
-    )
-    parser.add_argument(
-        "--outputdir",
-        type=str,
-        default="./output",
-        help="Directory where faibuilder output files are written (default './output')",
-    )
+    # parser.add_argument(
+    #    "--basefilesdir",
+    #    type=str,
+    #    default="./basefiles",
+    #    help="Directory where fai basefiles are located (default './basefiles')",
+    # )
+    # parser.add_argument(
+    #    "--faiconfigdir",
+    #    type=str,
+    #    default="./config",
+    #    help="fai config dir (default './config')",
+    # )
+    # parser.add_argument(
+    #    "--faimirrordir",
+    #    type=str,
+    #    default="./mirror",
+    #    help="fai mirror dir (default './mirror')",
+    # )
+    # parser.add_argument(
+    #    "--fainfsrootdir",
+    #    type=str,
+    #    default="./nfsroot",
+    #    help="fai nfsroot dir (default './nfsroot')",
+    # )
+    # parser.add_argument(
+    #    "--outputdir",
+    #    type=str,
+    #    default="./output",
+    #    help="Directory where faibuilder output files are written (default './output')",
+    # )
     args, passthrough = parser.parse_known_args()
 
-    sourcedir = Path(args.sourcedir).expanduser().resolve()
-    conffile = Path(args.conffile).expanduser().resolve()
-    basefilesdir = Path(args.basefilesdir).expanduser().resolve()
-    faiconfigdir = Path(args.faiconfigdir).expanduser().resolve()
-    faimirrordir = Path(args.faimirrordir).expanduser().resolve()
-    fainfsrootdir = Path(args.fainfsrootdir).expanduser().resolve()
-    outputdir = Path(args.outputdir).expanduser().resolve()
+    sourcedir = get_path(args.sourcedir)
+    globalconffile = get_path(args.globalconffile)
+    hostconffile = get_path(args.hostconffile)
+    # basefilesdir = get_path(args.basefilesdir)
+    # faiconfigdir = get_path(args.faiconfigdir)
+    # faimirrordir = get_path(args.faimirrordir)
+    # fainfsrootdir = get_path(args.fainfsrootdir)
+    # outputdir = get_path(args.outputdir)
     logging.info(f"sourcedir: {str(sourcedir)}")
-    logging.info(f"conffile: {str(conffile)}")
+    logging.info(f"globalconffile: {str(globalconffile)}")
+    logging.info(f"hostconffile: {str(hostconffile)}")
+
+    with globalconffile.open("r") as f:
+        globalconf = json.load(f)
+
+    logging.info(f"globalconf:\n{json.dumps(globalconf, indent=2)}")
+
+    with hostconffile.open("r") as f:
+        hostconf = json.load(f)
+
+    logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
+
+    basefilesdir = get_path(globalconf["basefilesdir"])
+    faiconfigdir = get_path(globalconf["faiconfigdir"])
+    faimirrordir = get_path(globalconf["faimirrordir"])
+    fainfsrootdir = get_path(globalconf["fainfsrootdir"])
+    outputdir = get_path(globalconf["outputdir"])
+
     logging.info(f"basefilesdir: {str(basefilesdir)}")
     logging.info(f"faiconfigdir: {str(faiconfigdir)}")
     logging.info(f"faimirrordir: {str(faimirrordir)}")
@@ -177,10 +209,10 @@ if __name__ == "__main__":
         build_image(sourcedir=sourcedir, dryrun=dryrun)
         sys.exit(0)
 
-
     build(
-        conffile=conffile,
         interactive=args.interactive,
+        globalconffile=globalconffile,
+        hostconffile=hostconffile,
         basefilesdir=basefilesdir,
         faiconfigdir=faiconfigdir,
         faimirrordir=faimirrordir,
