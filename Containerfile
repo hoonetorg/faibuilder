@@ -9,6 +9,7 @@ RUN apt-get update \
       dosfstools \
       mtools \
       btrfs-progs \
+      python3 \
  && rm -rf /var/lib/apt/lists/*
 
 RUN wget -O /usr/share/keyrings/fai-project-archive-keyring.gpg \
