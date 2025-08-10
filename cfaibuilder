@@ -136,50 +136,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--hostconffile",
         type=str,
-        default=f"./host.json",
-        help=f"Host config file (default './host.json')",
+        default="./host.json",
+        help="Host config file (default './host.json')",
     )
-    # parser.add_argument(
-    #    "--basefilesdir",
-    #    type=str,
-    #    default="./basefiles",
-    #    help="Directory where fai basefiles are located (default './basefiles')",
-    # )
-    # parser.add_argument(
-    #    "--faiconfigdir",
-    #    type=str,
-    #    default="./config",
-    #    help="fai config dir (default './config')",
-    # )
-    # parser.add_argument(
-    #    "--faimirrordir",
-    #    type=str,
-    #    default="./mirror",
-    #    help="fai mirror dir (default './mirror')",
-    # )
-    # parser.add_argument(
-    #    "--fainfsrootdir",
-    #    type=str,
-    #    default="./nfsroot",
-    #    help="fai nfsroot dir (default './nfsroot')",
-    # )
-    # parser.add_argument(
-    #    "--outputdir",
-    #    type=str,
-    #    default="./output",
-    #    help="Directory where faibuilder output files are written (default './output')",
-    # )
+
     args, passthrough = parser.parse_known_args()
 
     sourcedir = get_path(args.sourcedir)
+
+    logging.info(f"sourcedir: {str(sourcedir)}")
+
+    if args.build:
+        build_image(sourcedir=sourcedir, dryrun=dryrun)
+        sys.exit(0)
+
     globalconffile = get_path(args.globalconffile)
     hostconffile = get_path(args.hostconffile)
-    # basefilesdir = get_path(args.basefilesdir)
-    # faiconfigdir = get_path(args.faiconfigdir)
-    # faimirrordir = get_path(args.faimirrordir)
-    # fainfsrootdir = get_path(args.fainfsrootdir)
-    # outputdir = get_path(args.outputdir)
-    logging.info(f"sourcedir: {str(sourcedir)}")
+
     logging.info(f"globalconffile: {str(globalconffile)}")
     logging.info(f"hostconffile: {str(hostconffile)}")
 
@@ -204,10 +177,6 @@ if __name__ == "__main__":
     logging.info(f"faimirrordir: {str(faimirrordir)}")
     logging.info(f"fainfsrootdir: {str(fainfsrootdir)}")
     logging.info(f"outputdir: {str(outputdir)}")
-
-    if args.build:
-        build_image(sourcedir=sourcedir, dryrun=dryrun)
-        sys.exit(0)
 
     build(
         interactive=args.interactive,
