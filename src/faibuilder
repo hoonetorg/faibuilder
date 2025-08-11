@@ -248,6 +248,8 @@ def do_build_iso(
     )
 
     imgfilefull = outfilefull.with_suffix(".img")
+
+    logging.info(f"Now that we created an ISO {shlex.quote(str(outfilefull))}, delete {shlex.quote(str(imgfilefull))} if exists, because it is outdated")
     if imgfilefull.is_file():
         imgfilefull.unlink()
 
