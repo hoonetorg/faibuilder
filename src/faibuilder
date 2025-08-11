@@ -241,19 +241,24 @@ def do_build_iso(
         dryrun=dryrun,
     )
 
+
 def do_build_img_from_iso(
-        isofilefull: Path,
-        dryrun: bool = False,
+    isofilefull: Path,
+    dryrun: bool = False,
 ):
 
     imgfilefull = isofilefull.with_suffix(".img")
-    log.info(f"Creating IMG file {shlex.quote(str(imgfilefull))} from ISO file {shlex.quote(str(isofilefull))}")
+    log.info(
+        f"Creating IMG file {shlex.quote(str(imgfilefull))} from ISO file {shlex.quote(str(isofilefull))}"
+    )
 
-    MAX_FAT32_FILESIZE_BYTES =  (4 * 1024 ** 3) # 4 GiB in MiB
-    MAX_FAT32_FILESIZE_MIB = MAX_FAT32_FILESIZE_BYTES / (1024 ** 2)
+    MAX_FAT32_FILESIZE_BYTES = 4 * 1024**3  # 4 GiB in MiB
+    MAX_FAT32_FILESIZE_MIB = MAX_FAT32_FILESIZE_BYTES / (1024**2)
 
     if not is_readable_file(file=isofilefull):
-        log.error(f"\nISO file {shlex.quote(str(isofilefull))} does not exist - Exiting")
+        log.error(
+            f"\nISO file {shlex.quote(str(isofilefull))} does not exist - Exiting"
+        )
         sys.exit(1)
 
     log.info(f"Processing file: {shlex.quote(str(isofilefull))}")
@@ -271,13 +276,17 @@ def do_build_img_from_iso(
 
     log.info("Mounting ISO contents")
     subprocess_run_wrapper(
-        cmd=(f"mount -o loop,ro {shlex.quote(str(isofilefull))} {shlex.quote(str(isopath))}"),
+        cmd=(
+            f"mount -o loop,ro {shlex.quote(str(isofilefull))} {shlex.quote(str(isopath))}"
+        ),
         dryrun=dryrun,
     )
 
     log.info("Creating disk image")
     subprocess_run_wrapper(
-        cmd=(f"qemu-img create -f raw -o preallocation=off {shlex.quote(str(imgfilefull))} {int(imagesizegb)}G"),
+        cmd=(
+            f"qemu-img create -f raw -o preallocation=off {shlex.quote(str(imgfilefull))} {int(imagesizegb)}G"
+        ),
         dryrun=dryrun,
     )
 
@@ -292,19 +301,16 @@ def do_build_img_from_iso(
         ),
         dryrun=dryrun,
     )
- 
+
     log.info("Mapping partitions")
     try:
         result = subprocess_run_wrapper(
-            cmd=(
-               "losetup --show -fP "
-               f"{shlex.quote(str(imgfilefull))}"
-            ),
+            cmd=(f"losetup --show -fP {shlex.quote(str(imgfilefull))}"),
             dryrun=dryrun,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=True
+            check=True,
         )
 
         loopdevice = Path(result.stdout.strip())
@@ -331,12 +337,14 @@ def do_build_img_from_iso(
         cmd=(f"mount {shlex.quote(str(part1))} {shlex.quote(str(efipath))}"),
         dryrun=dryrun,
     )
-    #subprocess_run_wrapper(
-    #    cmd=(f"mkfs.ext4 -L {cdlabel} {shlex.quote(str(part2))}"),
-    #    dryrun=dryrun,
-    #)
+    # subprocess_run_wrapper(
+    #     cmd=(f"mkfs.ext4 -L {cdlabel} {shlex.quote(str(part2))}"),
+    #     dryrun=dryrun,
+    # )
     subprocess_run_wrapper(
-        cmd=(f"mkfs.btrfs --data single --metadata dup -L {cdlabel} {shlex.quote(str(part2))}"),
+        cmd=(
+            f"mkfs.btrfs --data single --metadata dup -L {cdlabel} {shlex.quote(str(part2))}"
+        ),
         dryrun=dryrun,
     )
     subprocess_run_wrapper(
@@ -356,7 +364,7 @@ def do_build_img_from_iso(
         ),
         dryrun=dryrun,
     )
- 
+
     subprocess_run_wrapper(
         cmd=(
             "rsync "
@@ -367,14 +375,14 @@ def do_build_img_from_iso(
         ),
         dryrun=dryrun,
     )
- 
+
     (efipath / "EFI" / "BOOT").mkdir(parents=True, exist_ok=True)
 
     subprocess_run_wrapper(
         cmd=(
             "rsync "
             "-av "
-            "/usr/local/etc/grub.cfg " 
+            "/usr/local/etc/grub.cfg "
             f"{shlex.quote(str(efipath / 'EFI' / 'BOOT'))} "
         ),
         dryrun=dryrun,
@@ -401,10 +409,7 @@ def do_build_img_from_iso(
     )
 
     subprocess_run_wrapper(
-        cmd=(
-               "losetup -d "
-               f"{shlex.quote(str(loopdevice))}"
-            ),
+        cmd=(f"losetup -d {shlex.quote(str(loopdevice))}"),
         dryrun=dryrun,
     )
 
