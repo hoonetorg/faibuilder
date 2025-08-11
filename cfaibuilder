@@ -38,8 +38,10 @@ def subprocess_run_wrapper(
 def get_path(path: str) -> Path:
     return Path(path).expanduser().absolute()
 
+
 def is_readable_file(file: Path) -> bool:
     return file.exists() and file.is_file() and os.access(file, os.R_OK)
+
 
 def build_image(sourcedir: Path, dryrun: bool = False):
     subprocess_run_wrapper(
@@ -152,7 +154,9 @@ if __name__ == "__main__":
 
     globalconffile = get_path(args.globalconffile)
     if not is_readable_file(file=globalconffile):
-        logging.error(f"Config file not found or not readable: {shlex.quote(str(globalconffile))}")
+        logging.error(
+            f"Config file not found or not readable: {shlex.quote(str(globalconffile))}"
+        )
         sys.exit(1)
     logging.info(f"globalconffile: {shlex.quote(str(globalconffile))}")
     globalconf = json.loads(globalconffile.read_text(encoding="utf-8"))
@@ -160,7 +164,9 @@ if __name__ == "__main__":
 
     hostconffile = get_path(args.hostconffile)
     if not is_readable_file(file=hostconffile):
-        logging.error(f"Config file not found or not readable: {shlex.quote(str(hostconffile))}")
+        logging.error(
+            f"Config file not found or not readable: {shlex.quote(str(hostconffile))}"
+        )
         sys.exit(1)
     logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
     hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))

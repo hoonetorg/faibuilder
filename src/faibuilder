@@ -238,7 +238,9 @@ def main():
 
     hostconffile = get_path(HOSTCONF)
     if not is_readable_file(file=hostconffile):
-        logging.error(f"Config file not found or not readable: {shlex.quote(str(hostconffile))}")
+        logging.error(
+            f"Config file not found or not readable: {shlex.quote(str(hostconffile))}"
+        )
         sys.exit(1)
     logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
     hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
