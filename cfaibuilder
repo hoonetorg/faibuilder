@@ -13,7 +13,7 @@ import json
 
 
 APPNAME = "faibuilder"
-IMAGENAME = f"{APPNAME}"
+IMAGENAME = APPNAME
 CONTAINERFILE = "Containerfile"
 WORKSPACE = Path(f"/{APPNAME}")
 
@@ -34,11 +34,11 @@ def subprocess_run_wrapper(
     return subprocess.run(wcmd, **kwargs)
 
 
-def get_path(path):
+def get_path(path: str) -> Path:
     return Path(path).expanduser().absolute()
 
 
-def build_image(sourcedir, dryrun: bool = False):
+def build_image(sourcedir: Path, dryrun: bool = False):
     subprocess_run_wrapper(
         cmd=(
             "podman build "
@@ -50,8 +50,7 @@ def build_image(sourcedir, dryrun: bool = False):
     )
 
 
-def release(imagedir, args, dryrun: bool = False):
-    #            f"-v {str(imagedir)}:{str(WORKSPACE)}:Z "
+def release(args: list, dryrun: bool = False):
     subprocess_run_wrapper(
         cmd=(
             "podman run "
@@ -60,7 +59,7 @@ def release(imagedir, args, dryrun: bool = False):
             f"-w {shlex.quote(str(WORKSPACE))} "
             "--entrypoint release "
             f"{shlex.quote(IMAGENAME)} "
-            f"{' '.join(args)}"
+            f"{' '.join(shlex.quote(a) for a in args)}"
         ),
         dryrun=dryrun,
         check=True,
@@ -68,23 +67,21 @@ def release(imagedir, args, dryrun: bool = False):
 
 
 def build(
-    interactive,
-    globalconffile,
-    hostconffile,
-    basefilesdir,
-    faiconfigdir,
-    faimirrordir,
-    fainfsrootdir,
-    outputdir,
-    args,
+    interactive: bool,
+    globalconffile: Path,
+    hostconffile: Path,
+    basefilesdir: Path,
+    faiconfigdir: Path,
+    faimirrordir: Path,
+    fainfsrootdir: Path,
+    outputdir: Path,
+    args: list,
     dryrun: bool = False,
 ):
     ctrargs = "--rm "
     if interactive:
         ctrargs += "-it --entrypoint /bin/bash "
 
-    #        "-v /dev:/dev "
-    #        f"-v {str(imagedir)}:{str(WORKSPACE)}:Z "
     subprocess_run_wrapper(
         cmd=(
             "podman "
@@ -101,7 +98,7 @@ def build(
             f"-v {shlex.quote(str(fainfsrootdir))}:/srv/fai/nfsroot:z "
             f"-v {shlex.quote(str(outputdir))}:/srv/fai/output:z "
             f"{shlex.quote(str(IMAGENAME))} "
-            f"{' '.join(args)}"
+            f"{' '.join(shlex.quote(a) for a in args)}"
         ),
         dryrun=dryrun,
         check=True,
@@ -144,7 +141,7 @@ if __name__ == "__main__":
 
     sourcedir = get_path(args.sourcedir)
 
-    logging.info(f"sourcedir: {str(sourcedir)}")
+    logging.info(f"sourcedir: {shlex.quote(str(sourcedir))}")
 
     if args.build:
         build_image(sourcedir=sourcedir, dryrun=dryrun)
@@ -153,17 +150,13 @@ if __name__ == "__main__":
     globalconffile = get_path(args.globalconffile)
     hostconffile = get_path(args.hostconffile)
 
-    logging.info(f"globalconffile: {str(globalconffile)}")
-    logging.info(f"hostconffile: {str(hostconffile)}")
+    logging.info(f"globalconffile: {shlex.quote(str(globalconffile))}")
+    logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
 
-    with globalconffile.open("r") as f:
-        globalconf = json.load(f)
+    globalconf = json.loads(globalconffile.read_text(encoding="utf-8"))
+    hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
 
     logging.info(f"globalconf:\n{json.dumps(globalconf, indent=2)}")
-
-    with hostconffile.open("r") as f:
-        hostconf = json.load(f)
-
     logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
 
     basefilesdir = get_path(globalconf["basefilesdir"])
@@ -172,11 +165,11 @@ if __name__ == "__main__":
     fainfsrootdir = get_path(globalconf["fainfsrootdir"])
     outputdir = get_path(globalconf["outputdir"])
 
-    logging.info(f"basefilesdir: {str(basefilesdir)}")
-    logging.info(f"faiconfigdir: {str(faiconfigdir)}")
-    logging.info(f"faimirrordir: {str(faimirrordir)}")
-    logging.info(f"fainfsrootdir: {str(fainfsrootdir)}")
-    logging.info(f"outputdir: {str(outputdir)}")
+    logging.info(f"basefilesdir: {shlex.quote(str(basefilesdir))}")
+    logging.info(f"faiconfigdir: {shlex.quote(str(faiconfigdir))}")
+    logging.info(f"faimirrordir: {shlex.quote(str(faimirrordir))}")
+    logging.info(f"fainfsrootdir: {shlex.quote(str(fainfsrootdir))}")
+    logging.info(f"outputdir: {shlex.quote(str(outputdir))}")
 
     build(
         interactive=args.interactive,
