@@ -252,9 +252,6 @@ def do_build_img_from_iso(
         f"Creating IMG file {shlex.quote(str(imgfilefull))} from ISO file {shlex.quote(str(isofilefull))}"
     )
 
-    # MAX_FAT32_FILESIZE_BYTES = 4 * 1024**3  # 4 GiB in MiB
-    # MAX_FAT32_FILESIZE_MIB = MAX_FAT32_FILESIZE_BYTES / (1024**2)
-
     if not is_readable_file(file=isofilefull):
         logging.error(
             f"\nISO file {shlex.quote(str(isofilefull))} does not exist - Exiting"

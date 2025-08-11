@@ -204,3 +204,6 @@ if __name__ == "__main__":
     logging.info(
         f"If FAI ISO build was successfull ISO file can be found under {shlex.quote(str(outfilefull))}"
     )
+    logging.info(
+        f"If FAI IMG build was successfull IMG file can be found under {shlex.quote(str(outfilefull.with_suffix('.img')))}"
+    )

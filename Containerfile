@@ -41,6 +41,7 @@ RUN apt-get update \
 COPY src/faibuilder /usr/local/bin/faibuilder
 RUN chmod +x /usr/local/bin/faibuilder
 COPY src/50-add-btrfs /usr/local/etc/50-add-btrfs
+COPY src/grub.cfg /usr/local/etc/grub.cfg
 
 
 RUN mkdir -p /faibuilder
