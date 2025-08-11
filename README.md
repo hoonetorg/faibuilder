@@ -66,13 +66,13 @@ inventory            # print short hardware inventory list
 
 If you’ve set `$FAI_ACTION` to something else, only the corresponding task (e.g. **dirinstall**, **softupdate**, **sysinfo** or **inventory**) will run in place of “install”
 
-Finally, there is a special **`confdir`** hook stage at the very beginning—these hooks run *before* the configuration space is even mounted and can only use the classes `DEFAULT`, `$(uname -s | tr a-z A-Z)`, `$HOSTNAME`, and `LAST`. 
+Finally, there is a special **`confdir`** hook stage at the very beginning-these hooks run *before* the configuration space is even mounted and can only use the classes `DEFAULT`, `$(uname -s | tr a-z A-Z)`, `$HOSTNAME`, and `LAST`. 
 
 
 
 
 
-* `.source` files are for sourcing variables/functions—but they’re deprecated.
+* `.source` files are for sourcing variables/functions-but they’re deprecated.
 * You should rename them to `.sh`.
 * Otherwise, FAI only recognizes “no extension” (exec) and “.sh” (sourced) hooks.
 
