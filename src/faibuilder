@@ -15,12 +15,12 @@ import grp
 import json
 
 # GLOBALCONF = "/srv/fai/faibuilder.json"
-HOSTCONF = "/srv/fai/host.json"
 BASEFILESDIRPATH = "/srv/fai/basefiles"
 FAICONFIGDIRPATH = "/srv/fai/config"
 FAIMIRRORDIRPATH = "/srv/fai/mirror"
 FAINFSROOTDIRPATH = "/srv/fai/nfsroot"
 OUTPUTDIRPATH = "/srv/fai/output"
+HOSTCONF = "/srv/fai/host.json"
 
 
 def subprocess_run_wrapper(
@@ -213,35 +213,17 @@ def main():
     dryrun = False
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
-    # globalconffile = get_path(GLOBALCONF)
-    hostconffile = get_path(HOSTCONF)
     basefilesdir = get_path(BASEFILESDIRPATH)
     faiconfigdir = get_path(FAICONFIGDIRPATH)
     faimirrordir = get_path(FAIMIRRORDIRPATH)
     fainfsrootdir = get_path(FAINFSROOTDIRPATH)
     outputdir = get_path(OUTPUTDIRPATH)
 
-    # if not is_readable_file(file=globalconffile):
-    #    logging.error(f"Config file not found or not readable: {str(globalconffile)}")
-    #    sys.exit(1)
-
-    # with globalconffile.open("r") as f:
-    #    globalconf = json.load(f)
-
-    if not is_readable_file(file=hostconffile):
-        logging.error(f"Config file not found or not readable: {str(hostconffile)}")
-        sys.exit(1)
-
-    with hostconffile.open("r") as f:
-        hostconf = json.load(f)
-
-    logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
-
-    faiclasses = hostconf["faiclasses"]
-    basefile = Path(hostconf["basefile"])
-
-    logging.info(f"faiclasses: {faiclasses}")
-    logging.info(f"basefile: {basefile}")
+    logging.info(f"basefilesdir: {shlex.quote(str(basefilesdir))}")
+    logging.info(f"faiconfigdir: {shlex.quote(str(faiconfigdir))}")
+    logging.info(f"faimirrordir: {shlex.quote(str(faimirrordir))}")
+    logging.info(f"fainfsrootdir: {shlex.quote(str(fainfsrootdir))}")
+    logging.info(f"outputdir: {shlex.quote(str(outputdir))}")
 
     # 0
     root_uid = pwd.getpwnam("root").pw_uid
@@ -253,6 +235,20 @@ def main():
             d.chmod(0o755)
         else:
             logging.info(f"[WARN] Directory does not exist: {d}")
+
+    hostconffile = get_path(HOSTCONF)
+    if not is_readable_file(file=hostconffile):
+        logging.error(f"Config file not found or not readable: {shlex.quote(str(hostconffile))}")
+        sys.exit(1)
+    logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
+    hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
+    logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
+
+    faiclasses = hostconf["faiclasses"]
+    basefile = Path(hostconf["basefile"])
+
+    logging.info(f"faiclasses: {faiclasses}")
+    logging.info(f"basefile: {shlex.quote(str(basefile))}")
 
     do_faimirror(faiclasses=faiclasses, faimirrordir=faimirrordir, dryrun=dryrun)
     do_make_basefile(
