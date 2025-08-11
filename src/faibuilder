@@ -14,7 +14,6 @@ import grp
 
 import json
 
-# GLOBALCONF = "/srv/fai/faibuilder.json"
 BASEFILESDIRPATH = "/srv/fai/basefiles"
 FAICONFIGDIRPATH = "/srv/fai/config"
 FAIMIRRORDIRPATH = "/srv/fai/mirror"
@@ -59,26 +58,32 @@ def is_readable_file(file: Path) -> bool:
 
 
 def do_faimirror(faiclasses: list, faimirrordir: Path, dryrun: bool = False):
-    marker_file = faimirrordir / "mirror-is-up-to-date"
+    faimirrormarker = faimirrordir / "mirror-is-up-to-date"
 
-    logging.info("[INFO] Checking mirror freshness")
-    if not marker_file.is_file():
-        logging.info("[INFO] Mirror is outdated or missing — running fai-mirror")
+    logging.info("Checking mirror freshness")
+    if not faimirrormarker.is_file():
+        logging.info(
+            f"Mirror is outdated or missing, faimirror marker file {shlex.quote(str(faimirrormarker))} is not a file — running fai-mirror"
+        )
 
         subprocess_run_wrapper(
             cmd=(
                 "fai-mirror -b -m1 "
-                f"-c '{shlex.quote(','.join(faiclasses))},GRUB_PC,GRUB_EFI,AMD64,FAIBUILDER' "
-                f"'{shlex.quote(str(faimirrordir))}'"
+                f"-c '{','.join(faiclasses)},GRUB_PC,GRUB_EFI,AMD64,FAIBUILDER' "
+                f"{shlex.quote(str(faimirrordir))}"
             ),
             dryrun=dryrun,
         )
 
         if not dryrun:
-            logging.info(f"[INFO] Touching marker file: {str(marker_file)}")
-            marker_file.touch()
+            logging.info(
+                f"Mirror finished, touching faimirror marker file: {shlex.quote(str(faimirrormarker))}"
+            )
+            faimirrormarker.touch()
     else:
-        logging.info(f"[INFO] Mirror is up to date: {str(marker_file)}")
+        logging.info(
+            f"Mirror is up to date, faimirror marker file is existing {shlex.quote(str(faimirrormarker))}"
+        )
 
 
 def do_make_basefile(
@@ -86,53 +91,69 @@ def do_make_basefile(
 ):
     basefilefull = basefilesdir / basefile
 
+    logging.info(f"Checking if basefile {shlex.quote(str(basefilefull))} exists")
     if not basefilefull.is_file():
         logging.info(
-            f"[INFO] Basefile {str(basefilefull)} is outdated or missing - running mk-basefile"
+            f"Basefile {shlex.quote(str(basefilefull))} is outdated or missing - running mk-basefile"
         )
 
-        basefile_base, basefile_ext = split_multi_ext(basefile)
+        basefilebase, basefileext = split_multi_ext(basefile)
 
         subprocess_run_wrapper(
-            cmd=(f"{str(faiconfigdir)}/basefiles/mk-basefile " f"-J {basefile_base}"),
+            cmd=(
+                f"{shlex.quote(str(faiconfigdir / 'basefiles' / 'mk-basefile'))} -J {shlex.quote(str(basefilebase))}"
+            ),
             dryrun=dryrun,
             cwd=basefilesdir,
         )
 
     else:
-        logging.info(f"[INFO] Basefile {str(basefilefull)} already exists")
+        logging.info(f"Basefile {shlex.quote(str(basefilefull))} already exists")
 
 
 def do_make_fainfsroot(
     fainfsrootdir: Path, basefilesdir: Path, basefile: Path, dryrun: bool = False
 ):
-    marker_file = fainfsrootdir / ".THIS_IS_THE_FAI_NFSROOT"
+    fainfsrootmarker = fainfsrootdir / ".THIS_IS_THE_FAI_NFSROOT"
 
     basefilefull = basefilesdir / basefile
 
-    if not marker_file.is_file():
+    logging.info("Checking NFSROOT freshness")
+    if not fainfsrootmarker.is_file():
         logging.info(
-            "[INFO] NFSROOT {str(fainfsrootdir)} is outdated or missing — running fai-make-nfsroot"
+            f"NFSROOT is outdated or missing fainfsroot marker file {shlex.quote(str(fainfsrootmarker))} is not a file — running fai-make-nfsroot"
         )
 
-        hooks_dir = Path("/etc/fai/nfsroot-hooks")
-        hooks_dir.mkdir(parents=True, exist_ok=True)
+        hooksdir = Path("/etc/fai/nfsroot-hooks")
+
+        logging.info(f"Creating {shlex.quote(str(hooksdir))}")
+        hooksdir.mkdir(parents=True, exist_ok=True)
 
         src = Path("/usr/local/etc/50-add-btrfs")
-        dest = hooks_dir / src.name
+        dest = hooksdir / src.name
+
+        logging.info(
+            f"Copying {shlex.quote(str(src))} to {shlex.quote(str(dest))} and make it executable"
+        )
         shutil.copy2(src, dest)
 
         # chmod +x
         mode = dest.stat().st_mode
         dest.chmod(mode | 0o111)
 
+        logging.info(
+            f"Content of {shlex.quote(str(dest))}:\n{str(dest.read_text(encoding='utf-8'))}"
+        )
+
         subprocess_run_wrapper(
-            cmd=("fai-make-nfsroot " f"-B {basefilefull} " "-N " "-f " "-v"),
+            cmd=(f"fai-make-nfsroot -B {shlex.quote(str(basefilefull))} -N -f -v"),
             dryrun=dryrun,
         )
 
     else:
-        logging.info(f"[INFO] NFSROOT {str(fainfsrootdir)} already exists")
+        logging.info(
+            f"NFSROOT seems to be ready - fainfsroot marker file {shlex.quote(str(fainfsrootmarker))} already exists"
+        )
 
 
 def do_build_iso(
@@ -143,6 +164,7 @@ def do_build_iso(
     outputdir: Path,
     dryrun: bool = False,
 ):
+
     classesfile = faiconfigdir / "class" / "50-host-classes"
 
     keymap = str(hostconf["keymap"])
@@ -154,14 +176,19 @@ def do_build_iso(
     rootsizemib = int(hostconf["rootsizemib"])
     outfile = Path(hostconf["outfile"])
 
-    logging.info(f"keymap: {keymap}")
-    logging.info(f"timezone: {timezone}")
+    outfilefull = outputdir / outfile
+
+    logging.info(f"Building FAI ISO {shlex.quote(str(outfilefull))}  with faicd")
+
+    logging.info(f"hostconf:")
+    logging.info(f"keymap: {str(keymap)}")
+    logging.info(f"timezone: {str(timezone)}")
     logging.info("rootpw: hidden")
-    logging.info(f"username: {username}")
+    logging.info(f"username: {str(username)}")
     logging.info("userpw: hidden")
-    logging.info(f"diskpath: {diskpath}")
-    logging.info(f"rootsizemib: {rootsizemib}")
-    logging.info(f"outfile: {outfile}")
+    logging.info(f"diskpath: {shlex.quote(str(diskpath))}")
+    logging.info(f"rootsizemib: {int(rootsizemib)}")
+    logging.info(f"outfile: {shlex.quote(str(outfile))}")
 
     content = (
         "#!/bin/bash\n"
@@ -169,41 +196,47 @@ def do_build_iso(
         f"echo '{' '.join(faiclasses)} FAIBUILDER'\n"
     )
     if dryrun:
-        print(f"[DRYRUN] Writing to {classesfile}: {content.strip()}")
+        logging.info(
+            f"[DRYRUN] Would write to {shlex.quote(str(classesfile))}:\n{content.strip()}"
+        )
     else:
+        logging.info(f"Writing to {shlex.quote(str(classesfile))}:\n{content.strip()}")
         classesfile.write_text(content)
 
-    # chmod +x
+    logging.info(f"Making {shlex.quote(str(classesfile))} executable")
     classesfilemode = classesfile.stat().st_mode
     classesfile.chmod(classesfilemode | 0o111)
 
-    storageenvfile = faiconfigdir / "class" / "FAIBUILDER.var"
+    variablesfile = faiconfigdir / "class" / "FAIBUILDER.var"
     content = (
         "# generated by faibuilder\n"
-        f"KEYMAP='{keymap}'\n"
-        f"TIMEZONE='{timezone}'\n"
-        f"ROOTPW='{rootpw}'\n"
-        f"username='{username}'\n"
-        f"USERPW='{userpw}'\n"
-        f"DISKPATH='{str(diskpath)}'\n"
+        f"KEYMAP='{str(keymap)}'\n"
+        f"TIMEZONE='{str(timezone)}'\n"
+        f"ROOTPW={shlex.quote(str(rootpw))}\n"
+        f"username='{str(username)}'\n"
+        f"USERPW={shlex.quote(str(userpw))}\n"
+        f"DISKPATH={shlex.quote(str(diskpath))}\n"
         f"ROOTSIZEMIB='{int(rootsizemib)}'\n"
     )
 
     if dryrun:
-        print(f"[DRYRUN] write {storageenvfile}\n{content}")
+        logging.info(
+            f"[DRYRUN] Would write to {shlex.quote(str(variablesfile))}\n{content.strip()}"
+        )
     else:
-        storageenvfile.write_text(content)
+        logging.info(f"Writing to {shlex.quote(str(variablesfile))}\n{content.strip()}")
+        variablesfile.write_text(content)
 
-    # chmod +x
-    storageenvfilemode = storageenvfile.stat().st_mode
-    storageenvfile.chmod(storageenvfilemode | 0o111)
+    # logging.info(f"Making {shlex.quote(str(variablesfile))} executable")
+    # variablesfilemode = variablesfile.stat().st_mode
+    # variablesfile.chmod(variablesfilemode | 0o111)
 
     subprocess_run_wrapper(
         cmd=(
             "fai-cd "
-            f"-g {str(faiconfigdir)}/grub.cfg "
-            f"-m '{str(faimirrordir)}' "
-            f"'{str(outputdir / outfile)}'"
+            f"-g {shlex.quote(str(faiconfigdir / 'grub.cfg'))} "
+            f"-m {shlex.quote(str(faimirrordir))} "
+            f"{shlex.quote(str(outfilefull))}"
         ),
         dryrun=dryrun,
     )
@@ -234,7 +267,7 @@ def main():
             os.chown(d, root_uid, root_gid)
             d.chmod(0o755)
         else:
-            logging.info(f"[WARN] Directory does not exist: {d}")
+            logging.info(f"[WARN] Directory does not exist: {shlex.quote(str(d))}")
 
     hostconffile = get_path(HOSTCONF)
     if not is_readable_file(file=hostconffile):
