@@ -172,7 +172,6 @@ if __name__ == "__main__":
     hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
     logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
 
-
     basefilesdir = get_path(globalconf["basefilesdir"])
     faiconfigdir = get_path(globalconf["faiconfigdir"])
     faimirrordir = get_path(globalconf["faimirrordir"])
@@ -188,7 +187,6 @@ if __name__ == "__main__":
     logging.info(f"outputdir: {shlex.quote(str(outputdir))}")
     logging.info(f"outfile: {shlex.quote(str(outfile))}")
 
-
     build(
         interactive=args.interactive,
         globalconffile=globalconffile,
@@ -202,7 +200,7 @@ if __name__ == "__main__":
         dryrun=dryrun,
     )
 
-
     outfilefull = outputdir / outfile
-    logging.info(f"If FAI ISO build was successfull ISO file can be found under {shlex.quote(str(outfilefull))}")
-
+    logging.info(
+        f"If FAI ISO build was successfull ISO file can be found under {shlex.quote(str(outfilefull))}"
+    )

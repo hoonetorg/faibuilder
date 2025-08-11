@@ -248,20 +248,20 @@ def do_build_img_from_iso(
 ):
 
     imgfilefull = isofilefull.with_suffix(".img")
-    log.info(
+    logging.info(
         f"Creating IMG file {shlex.quote(str(imgfilefull))} from ISO file {shlex.quote(str(isofilefull))}"
     )
 
-    MAX_FAT32_FILESIZE_BYTES = 4 * 1024**3  # 4 GiB in MiB
-    MAX_FAT32_FILESIZE_MIB = MAX_FAT32_FILESIZE_BYTES / (1024**2)
+    # MAX_FAT32_FILESIZE_BYTES = 4 * 1024**3  # 4 GiB in MiB
+    # MAX_FAT32_FILESIZE_MIB = MAX_FAT32_FILESIZE_BYTES / (1024**2)
 
     if not is_readable_file(file=isofilefull):
-        log.error(
+        logging.error(
             f"\nISO file {shlex.quote(str(isofilefull))} does not exist - Exiting"
         )
         sys.exit(1)
 
-    log.info(f"Processing file: {shlex.quote(str(isofilefull))}")
+    logging.info(f"Processing file: {shlex.quote(str(isofilefull))}")
 
     isopath = Path("/iso")
     efipath = Path("/efi")
@@ -274,7 +274,7 @@ def do_build_img_from_iso(
     efilabel = "EFI"
     cdlabel = "FAI_CD"
 
-    log.info("Mounting ISO contents")
+    logging.info("Mounting ISO contents")
     subprocess_run_wrapper(
         cmd=(
             f"mount -o loop,ro {shlex.quote(str(isofilefull))} {shlex.quote(str(isopath))}"
@@ -282,7 +282,7 @@ def do_build_img_from_iso(
         dryrun=dryrun,
     )
 
-    log.info("Creating disk image")
+    logging.info("Creating disk image")
     subprocess_run_wrapper(
         cmd=(
             f"qemu-img create -f raw -o preallocation=off {shlex.quote(str(imgfilefull))} {int(imagesizegb)}G"
@@ -290,7 +290,7 @@ def do_build_img_from_iso(
         dryrun=dryrun,
     )
 
-    log.info("Partitioning the disk")
+    logging.info("Partitioning the disk")
     subprocess_run_wrapper(
         cmd=(
             "parted --script "
@@ -302,7 +302,7 @@ def do_build_img_from_iso(
         dryrun=dryrun,
     )
 
-    log.info("Mapping partitions")
+    logging.info("Mapping partitions")
     try:
         result = subprocess_run_wrapper(
             cmd=(f"losetup --show -fP {shlex.quote(str(imgfilefull))}"),
@@ -327,7 +327,7 @@ def do_build_img_from_iso(
     part1 = Path("/dev/mapper") / (loopdevice.name + "p1")
     part2 = Path("/dev/mapper") / (loopdevice.name + "p2")
 
-    log.info("Formatting and mounting partitions")
+    logging.info("Formatting and mounting partitions")
 
     subprocess_run_wrapper(
         cmd=(f"mkfs.vfat -F 32 -n {efilabel} {shlex.quote(str(part1))}"),
@@ -388,21 +388,21 @@ def do_build_img_from_iso(
         dryrun=dryrun,
     )
 
-    find_files(efipath, output_file=f"{imgfilefull}.filelistefi")
+    # find_files(efipath, output_file=f"{imgfilefull}.filelistefi")
 
     subprocess_run_wrapper(
         cmd=(f"umount {shlex.quote(str(efipath))}"),
         dryrun=dryrun,
     )
 
-    find_files(cdpath, output_file=f"{imgfilefull}.filelistcd")
+    # find_files(cdpath, output_file=f"{imgfilefull}.filelistcd")
 
     subprocess_run_wrapper(
         cmd=(f"umount {shlex.quote(str(cdpath))}"),
         dryrun=dryrun,
     )
 
-    log.info("Cleaning up")
+    logging.info("Cleaning up")
     subprocess_run_wrapper(
         cmd=(f"kpartx -d {shlex.quote(str(loopdevice))}"),
         dryrun=dryrun,
@@ -418,7 +418,7 @@ def do_build_img_from_iso(
         dryrun=dryrun,
     )
 
-    log.info(f"Disk image {imgfilefull} created successfully")
+    logging.info(f"Disk image {imgfilefull} created successfully")
 
 
 def main():
@@ -460,6 +460,7 @@ def main():
 
     faiclasses = hostconf["faiclasses"]
     basefile = Path(hostconf["basefile"])
+    outfile = Path(hostconf["outfile"])
 
     logging.info(f"faiclasses: {faiclasses}")
     logging.info(f"basefile: {shlex.quote(str(basefile))}")
@@ -487,7 +488,7 @@ def main():
     )
 
     do_build_img_from_iso(
-        isofilefull=outputdir / outputfile,
+        isofilefull=outputdir / outfile,
         dryrun=dryrun,
     )
 
