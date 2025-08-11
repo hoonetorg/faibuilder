@@ -180,7 +180,7 @@ def do_build_iso(
 
     logging.info(f"Building FAI ISO {shlex.quote(str(outfilefull))}  with faicd")
 
-    logging.info(f"hostconf:")
+    logging.info("hostconf:")
     logging.info(f"keymap: {str(keymap)}")
     logging.info(f"timezone: {str(timezone)}")
     logging.info("rootpw: hidden")
