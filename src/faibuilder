@@ -255,6 +255,13 @@ def do_build_iso(
     if imgfilefull.is_file():
         imgfilefull.unlink()
 
+    logging.info(
+        f"Cleanup {shlex.quote(str(classesfile))} and  {shlex.quote(str(variablesfile))} if exists"
+    )
+    for f in [classesfile, variablesfile]:
+        if f.is_file():
+            f.unlink()
+
 
 def do_build_img_from_iso(
     isofilefull: Path,
