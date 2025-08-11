@@ -5,6 +5,7 @@ import argparse
 import logging
 
 from pathlib import Path
+import os
 import sys
 import subprocess
 import shlex
@@ -37,6 +38,8 @@ def subprocess_run_wrapper(
 def get_path(path: str) -> Path:
     return Path(path).expanduser().absolute()
 
+def is_readable_file(file: Path) -> bool:
+    return file.exists() and file.is_file() and os.access(file, os.R_OK)
 
 def build_image(sourcedir: Path, dryrun: bool = False):
     subprocess_run_wrapper(
@@ -148,15 +151,19 @@ if __name__ == "__main__":
         sys.exit(0)
 
     globalconffile = get_path(args.globalconffile)
-    hostconffile = get_path(args.hostconffile)
-
+    if not is_readable_file(file=globalconffile):
+        logging.error(f"Config file not found or not readable: {str(globalconffile)}")
+        sys.exit(1)
     logging.info(f"globalconffile: {shlex.quote(str(globalconffile))}")
-    logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
-
     globalconf = json.loads(globalconffile.read_text(encoding="utf-8"))
-    hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
-
     logging.info(f"globalconf:\n{json.dumps(globalconf, indent=2)}")
+
+    hostconffile = get_path(args.hostconffile)
+    if not is_readable_file(file=hostconffile):
+        logging.error(f"Config file not found or not readable: {str(hostconffile)}")
+        sys.exit(1)
+    logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
+    hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
     logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
 
     basefilesdir = get_path(globalconf["basefilesdir"])
