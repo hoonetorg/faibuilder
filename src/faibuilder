@@ -61,29 +61,31 @@ def do_faimirror(faiclasses: list, faimirrordir: Path, dryrun: bool = False):
     faimirrormarker = faimirrordir / "mirror-is-up-to-date"
 
     logging.info("Checking mirror freshness")
-    if not faimirrormarker.is_file():
-        logging.info(
-            f"Mirror is outdated or missing, faimirror marker file {shlex.quote(str(faimirrormarker))} is not a file — running fai-mirror"
-        )
 
-        subprocess_run_wrapper(
-            cmd=(
-                "fai-mirror -b -m1 "
-                f"-c '{','.join(faiclasses)},GRUB_PC,GRUB_EFI,AMD64,FAIBUILDER' "
-                f"{shlex.quote(str(faimirrordir))}"
-            ),
-            dryrun=dryrun,
-        )
-
-        if not dryrun:
-            logging.info(
-                f"Mirror finished, touching faimirror marker file: {shlex.quote(str(faimirrormarker))}"
-            )
-            faimirrormarker.touch()
-    else:
+    if faimirrormarker.is_file():
         logging.info(
             f"Mirror is up to date, faimirror marker file is existing {shlex.quote(str(faimirrormarker))}"
         )
+        return
+
+    logging.info(
+        f"Mirror is outdated or missing, faimirror marker file {shlex.quote(str(faimirrormarker))} is not a file - running fai-mirror"
+    )
+
+    subprocess_run_wrapper(
+        cmd=(
+            "fai-mirror -b -m1 "
+            f"-c '{','.join(faiclasses)},GRUB_PC,GRUB_EFI,AMD64,FAIBUILDER' "
+            f"{shlex.quote(str(faimirrordir))}"
+        ),
+        dryrun=dryrun,
+    )
+
+    if not dryrun:
+        logging.info(
+            f"Mirror finished, touching faimirror marker file: {shlex.quote(str(faimirrormarker))}"
+        )
+        faimirrormarker.touch()
 
 
 def do_make_basefile(
@@ -92,23 +94,25 @@ def do_make_basefile(
     basefilefull = basefilesdir / basefile
 
     logging.info(f"Checking if basefile {shlex.quote(str(basefilefull))} exists")
-    if not basefilefull.is_file():
-        logging.info(
-            f"Basefile {shlex.quote(str(basefilefull))} is outdated or missing - running mk-basefile"
-        )
 
-        basefilebase, basefileext = split_multi_ext(basefile)
-
-        subprocess_run_wrapper(
-            cmd=(
-                f"{shlex.quote(str(faiconfigdir / 'basefiles' / 'mk-basefile'))} -J {shlex.quote(str(basefilebase))}"
-            ),
-            dryrun=dryrun,
-            cwd=basefilesdir,
-        )
-
-    else:
+    if  basefilefull.is_file():
         logging.info(f"Basefile {shlex.quote(str(basefilefull))} already exists")
+        return
+
+    logging.info(
+        f"Basefile {shlex.quote(str(basefilefull))} is outdated or missing - running mk-basefile"
+    )
+
+    basefilebase, basefileext = split_multi_ext(basefile)
+
+    subprocess_run_wrapper(
+        cmd=(
+            f"{shlex.quote(str(faiconfigdir / 'basefiles' / 'mk-basefile'))} -J {shlex.quote(str(basefilebase))}"
+        ),
+        dryrun=dryrun,
+        cwd=basefilesdir,
+    )
+
 
 
 def do_make_fainfsroot(
@@ -119,41 +123,43 @@ def do_make_fainfsroot(
     basefilefull = basefilesdir / basefile
 
     logging.info("Checking NFSROOT freshness")
-    if not fainfsrootmarker.is_file():
-        logging.info(
-            f"NFSROOT is outdated or missing fainfsroot marker file {shlex.quote(str(fainfsrootmarker))} is not a file — running fai-make-nfsroot"
-        )
 
-        hooksdir = Path("/etc/fai/nfsroot-hooks")
-
-        logging.info(f"Creating {shlex.quote(str(hooksdir))}")
-        hooksdir.mkdir(parents=True, exist_ok=True)
-
-        src = Path("/usr/local/etc/50-add-btrfs")
-        dest = hooksdir / src.name
-
-        logging.info(
-            f"Copying {shlex.quote(str(src))} to {shlex.quote(str(dest))} and make it executable"
-        )
-        shutil.copy2(src, dest)
-
-        # chmod +x
-        mode = dest.stat().st_mode
-        dest.chmod(mode | 0o111)
-
-        logging.info(
-            f"Content of {shlex.quote(str(dest))}:\n{str(dest.read_text(encoding='utf-8'))}"
-        )
-
-        subprocess_run_wrapper(
-            cmd=(f"fai-make-nfsroot -B {shlex.quote(str(basefilefull))} -N -f -v"),
-            dryrun=dryrun,
-        )
-
-    else:
+    if fainfsrootmarker.is_file():
         logging.info(
             f"NFSROOT seems to be ready - fainfsroot marker file {shlex.quote(str(fainfsrootmarker))} already exists"
         )
+        return
+
+    logging.info(
+        f"NFSROOT is outdated or missing fainfsroot marker file {shlex.quote(str(fainfsrootmarker))} is not a file - running fai-make-nfsroot"
+    )
+
+    hooksdir = Path("/etc/fai/nfsroot-hooks")
+
+    logging.info(f"Creating {shlex.quote(str(hooksdir))}")
+    hooksdir.mkdir(parents=True, exist_ok=True)
+
+    src = Path("/usr/local/etc/50-add-btrfs")
+    dest = hooksdir / src.name
+
+    logging.info(
+        f"Copying {shlex.quote(str(src))} to {shlex.quote(str(dest))} and make it executable"
+    )
+    shutil.copy2(src, dest)
+
+    # chmod +x
+    mode = dest.stat().st_mode
+    dest.chmod(mode | 0o111)
+
+    logging.info(
+        f"Content of {shlex.quote(str(dest))}:\n{str(dest.read_text(encoding='utf-8'))}"
+    )
+
+    subprocess_run_wrapper(
+        cmd=(f"fai-make-nfsroot -B {shlex.quote(str(basefilefull))} -N -f -v"),
+        dryrun=dryrun,
+    )
+
 
 
 def do_build_iso(
@@ -178,7 +184,11 @@ def do_build_iso(
 
     outfilefull = outputdir / outfile
 
-    logging.info(f"Building FAI ISO {shlex.quote(str(outfilefull))}  with faicd")
+    if outfilefull.is_file():
+        logging.info(f"ISO already exists: {shlex.quote(str(outfilefull))} - refusing to overwrite.")
+        return
+
+    logging.info(f"Building FAI ISO {shlex.quote(str(outfilefull))} with faicd")
 
     logging.info("hostconf:")
     logging.info(f"keymap: {str(keymap)}")
@@ -244,6 +254,11 @@ def do_build_img_from_iso(
 ):
 
     imgfilefull = isofilefull.with_suffix(".img")
+
+    if imgfilefull.is_file():
+        logging.info(f"IMG already exists: {shlex.quote(str(imgfilefull))} - refusing to overwrite.")
+        return
+
     logging.info(
         f"Creating IMG file {shlex.quote(str(imgfilefull))} from ISO file {shlex.quote(str(isofilefull))}"
     )
