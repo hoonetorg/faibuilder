@@ -95,7 +95,7 @@ def do_make_basefile(
 
     logging.info(f"Checking if basefile {shlex.quote(str(basefilefull))} exists")
 
-    if  basefilefull.is_file():
+    if basefilefull.is_file():
         logging.info(f"Basefile {shlex.quote(str(basefilefull))} already exists")
         return
 
@@ -112,7 +112,6 @@ def do_make_basefile(
         dryrun=dryrun,
         cwd=basefilesdir,
     )
-
 
 
 def do_make_fainfsroot(
@@ -161,7 +160,6 @@ def do_make_fainfsroot(
     )
 
 
-
 def do_build_iso(
     faiclasses: list,
     hostconf: dict,
@@ -185,7 +183,9 @@ def do_build_iso(
     outfilefull = outputdir / outfile
 
     if outfilefull.is_file():
-        logging.info(f"ISO already exists: {shlex.quote(str(outfilefull))} - refusing to overwrite.")
+        logging.info(
+            f"ISO already exists: {shlex.quote(str(outfilefull))} - refusing to overwrite."
+        )
         return
 
     logging.info(f"Building FAI ISO {shlex.quote(str(outfilefull))} with faicd")
@@ -247,6 +247,10 @@ def do_build_iso(
         dryrun=dryrun,
     )
 
+    imgfilefull = outfilefull.with_suffix(".img")
+    if imgfilefull.is_file():
+        imgfilefull.unlink()
+
 
 def do_build_img_from_iso(
     isofilefull: Path,
@@ -256,7 +260,9 @@ def do_build_img_from_iso(
     imgfilefull = isofilefull.with_suffix(".img")
 
     if imgfilefull.is_file():
-        logging.info(f"IMG already exists: {shlex.quote(str(imgfilefull))} - refusing to overwrite.")
+        logging.info(
+            f"IMG already exists: {shlex.quote(str(imgfilefull))} - refusing to overwrite."
+        )
         return
 
     logging.info(
