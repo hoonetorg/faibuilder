@@ -227,10 +227,6 @@ def do_build_iso(
         logging.info(f"Writing to {shlex.quote(str(variablesfile))}\n{content.strip()}")
         variablesfile.write_text(content)
 
-    # logging.info(f"Making {shlex.quote(str(variablesfile))} executable")
-    # variablesfilemode = variablesfile.stat().st_mode
-    # variablesfile.chmod(variablesfilemode | 0o111)
-
     subprocess_run_wrapper(
         cmd=(
             "fai-cd "
@@ -385,14 +381,10 @@ def do_build_img_from_iso(
         dryrun=dryrun,
     )
 
-    # find_files(efipath, output_file=f"{imgfilefull}.filelistefi")
-
     subprocess_run_wrapper(
         cmd=(f"umount {shlex.quote(str(efipath))}"),
         dryrun=dryrun,
     )
-
-    # find_files(cdpath, output_file=f"{imgfilefull}.filelistcd")
 
     subprocess_run_wrapper(
         cmd=(f"umount {shlex.quote(str(cdpath))}"),
