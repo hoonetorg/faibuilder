@@ -4,12 +4,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+      python3 \
       wget \
       ca-certificates \
+      kpartx \
+      parted \
+      fuse3 \
+      qemu-utils \
       dosfstools \
       mtools \
+      e2fsprogs \
       btrfs-progs \
-      python3 \
+      sudo \
+    rsync \
+    grub-efi-amd64-signed \
+    shim-signed \
  && rm -rf /var/lib/apt/lists/*
 
 RUN wget -O /usr/share/keyrings/fai-project-archive-keyring.gpg \
