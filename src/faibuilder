@@ -178,6 +178,7 @@ def do_build_iso(
     userpw = str(hostconf["userpw"])
     diskpath = Path(hostconf["diskpath"])
     rootsizemib = int(hostconf["rootsizemib"])
+    cryptpw = str(hostconf["cryptpw"])
     outfile = Path(hostconf["outfile"])
 
     outfilefull = outputdir / outfile
@@ -198,6 +199,7 @@ def do_build_iso(
     logging.info("userpw: hidden")
     logging.info(f"diskpath: {shlex.quote(str(diskpath))}")
     logging.info(f"rootsizemib: {int(rootsizemib)}")
+    logging.info("cryptpw: hidden")
     logging.info(f"outfile: {shlex.quote(str(outfile))}")
 
     content = (
@@ -226,6 +228,7 @@ def do_build_iso(
         f"username='{str(username)}'\n"
         f"USERPW={shlex.quote(str(userpw))}\n"
         f"DISKPATH={shlex.quote(str(diskpath))}\n"
+        f"CRYPTPW={shlex.quote(str(cryptpw))}\n"
         f"ROOTSIZEMIB='{int(rootsizemib)}'\n"
     )
 
