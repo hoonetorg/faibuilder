@@ -17,6 +17,7 @@ RUN apt-get update \
       btrfs-progs \
       sudo \
     rsync \
+    apt-cacher-ng \
     grub-efi-amd64-signed \
     shim-signed \
  && rm -rf /var/lib/apt/lists/*
