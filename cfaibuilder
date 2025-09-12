@@ -75,9 +75,12 @@ def build(
     interactive: bool,
     globalconffile: Path,
     hostconffile: Path,
+    acngdir: Path,
     basefilesdir: Path,
+    faietcdir: Path,
     faiconfigdir: Path,
     faimirrordir: Path,
+    fainfsetcdir: Path,
     fainfsrootdir: Path,
     outputdir: Path,
     args: list,
@@ -97,9 +100,12 @@ def build(
             f"-w {shlex.quote(str(WORKSPACE))} "
             f"-v {shlex.quote(str(globalconffile))}:/srv/fai/faibuilder.json:ro,z "
             f"-v {shlex.quote(str(hostconffile))}:/srv/fai/host.json:ro,z "
+            f"-v {shlex.quote(str(acngdir))}:/var/cache/apt-cacher-ng:z "
             f"-v {shlex.quote(str(basefilesdir))}:/srv/fai/basefiles:z "
+            f"-v {shlex.quote(str(faietcdir))}:/srv/fai/etc:ro,z "
             f"-v {shlex.quote(str(faiconfigdir))}:/srv/fai/config:z "
             f"-v {shlex.quote(str(faimirrordir))}:/srv/fai/mirror:z "
+            f"-v {shlex.quote(str(fainfsetcdir))}:/srv/fai/nfsetc:ro,z "
             f"-v {shlex.quote(str(fainfsrootdir))}:/srv/fai/nfsroot:z "
             f"-v {shlex.quote(str(outputdir))}:/srv/fai/output:z "
             f"{shlex.quote(str(IMAGENAME))} "
@@ -172,17 +178,23 @@ if __name__ == "__main__":
     hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
     logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
 
+    acngdir = get_path(globalconf["acngdir"])
     basefilesdir = get_path(globalconf["basefilesdir"])
+    faietcdir = get_path(hostconf["faietcdir"])
     faiconfigdir = get_path(globalconf["faiconfigdir"])
-    faimirrordir = get_path(globalconf["faimirrordir"])
+    faimirrordir = get_path(hostconf["faimirrordir"])
+    fainfsetcdir = get_path(globalconf["fainfsetcdir"])
     fainfsrootdir = get_path(globalconf["fainfsrootdir"])
     outputdir = get_path(globalconf["outputdir"])
 
     outfile = Path(hostconf["outfile"])
 
+    logging.info(f"acngdir: {shlex.quote(str(acngdir))}")
     logging.info(f"basefilesdir: {shlex.quote(str(basefilesdir))}")
+    logging.info(f"faietcdir: {shlex.quote(str(faietcdir))}")
     logging.info(f"faiconfigdir: {shlex.quote(str(faiconfigdir))}")
     logging.info(f"faimirrordir: {shlex.quote(str(faimirrordir))}")
+    logging.info(f"fainfsetcdir: {shlex.quote(str(fainfsetcdir))}")
     logging.info(f"fainfsrootdir: {shlex.quote(str(fainfsrootdir))}")
     logging.info(f"outputdir: {shlex.quote(str(outputdir))}")
     logging.info(f"outfile: {shlex.quote(str(outfile))}")
@@ -191,9 +203,12 @@ if __name__ == "__main__":
         interactive=args.interactive,
         globalconffile=globalconffile,
         hostconffile=hostconffile,
+        acngdir=acngdir,
         basefilesdir=basefilesdir,
+        faietcdir=faietcdir,
         faiconfigdir=faiconfigdir,
         faimirrordir=faimirrordir,
+        fainfsetcdir=fainfsetcdir,
         fainfsrootdir=fainfsrootdir,
         outputdir=outputdir,
         args=passthrough,
