@@ -1,6 +1,10 @@
 #!/usr/bin/env -S python3 -u
 import logging
 
+import http.server
+import socketserver
+import threading
+
 import os
 import sys
 import subprocess
@@ -77,9 +81,27 @@ def is_readable_file(file: Path) -> bool:
     return file.exists() and file.is_file() and os.access(file, os.R_OK)
 
 
-def reset_apt_sources():
-    # dirs = [Path("/etc/apt"), Path("/etc/fai/apt")]
-    dirs = [Path("/etc/apt")]
+def copy_all_files_from_dir(srcdir: Path, srcglob: str, tgtdir: Path) -> list:
+    cleanupfiles = []
+    if srcdir.exists():
+        tgtdir.mkdir(parents=True, exist_ok=True)
+        srcfiles = srcdir.glob(srcglob)
+        for f in srcfiles:
+            t = tgtdir / f.name
+            if not t.exists():
+                cleanupfiles.append(t)
+                logging.info(f"Copying {shlex.quote(str(f))} to {shlex.quote(str(t))}")
+                shutil.copy2(f, t)
+            else:
+                logging.info(
+                    f"Not overwriting {shlex.quote(str(t))} with {shlex.quote(str(f))}"
+                )
+
+    return cleanupfiles
+
+
+def reset_apt_sources(faietcdir: Path):
+    dirs = [Path("/etc/apt"), Path("/etc/fai/apt")]
 
     for d in dirs:
         sl = d / "sources.list"
@@ -96,127 +118,33 @@ def reset_apt_sources():
                 f.unlink()
                 logging.info(f"Deleted {f}")
 
-    debcontent = """Types: deb deb-src
-URIs: http://127.0.0.1:3142/snapshot.debian.org/archive/debian/20250906T112439Z
-Suites: trixie trixie-updates
-Components: main non-free-firmware contrib non-free
-Enabled: yes
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+        copy_all_files_from_dir(
+            srcdir=faietcdir / "apt", srcglob="sources.list", tgtdir=d
+        )
 
-Types: deb deb-src
-URIs: http://127.0.0.1:3142/snapshot.debian.org/archive/debian-security/20250906T161327Z
-Suites: trixie-security
-Components: main non-free-firmware contrib non-free
-Enabled: yes
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-"""
-    faicontent = """Types: deb
-URIs: http://127.0.0.1:3142/fai-project.org/download/
-Suites: trixie
-Components: koeln
-Signed-By: /usr/share/keyrings/fai-project-archive-keyring.gpg
-"""
+        copy_all_files_from_dir(
+            srcdir=faietcdir / "apt" / "sources.list.d",
+            srcglob="*.list",
+            tgtdir=d / "sources.list.d",
+        )
 
-    srccontent = """deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://127.0.0.1:3142/snapshot.debian.org/archive/debian/20250906T112439Z trixie main non-free-firmware contrib non-free
-deb-src [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://127.0.0.1:3142/snapshot.debian.org/archive/debian/20250906T112439Z trixie main non-free-firmware contrib non-free
-
-deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://127.0.0.1:3142/snapshot.debian.org/archive/debian/20250906T112439Z trixie-updates main non-free-firmware contrib non-free
-deb-src [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://127.0.0.1:3142/snapshot.debian.org/archive/debian/20250906T112439Z trixie-updates main non-free-firmware contrib non-free
-
-deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://127.0.0.1:3142/snapshot.debian.org/archive/debian-security/20250906T161327Z trixie-security main non-free-firmware contrib non-free
-deb-src [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://127.0.0.1:3142/snapshot.debian.org/archive/debian-security/20250906T161327Z trixie-security main non-free-firmware contrib non-free
-deb [signed-by=/usr/share/keyrings/fai-project-archive-keyring.gpg] http://127.0.0.1:3142/fai-project.org/download trixie koeln
-"""
-
-    for d in dirs:
-        sldir = d / "sources.list.d"
-        sldir.mkdir(parents=True, exist_ok=True)
-        debtarget = sldir / "debian.sources"
-        debtarget.write_text(debcontent, encoding="utf-8")
-        logging.info(f"Wrote new sources to {debtarget}")
-
-        faitarget = sldir / "fai-project.sources"
-        faitarget.write_text(faicontent, encoding="utf-8")
-        logging.info(f"Wrote new sources to {faitarget}")
-
-    srctarget = Path("/etc/fai/apt/sources.list")
-    srctarget.write_text(srccontent, encoding="utf-8")
-    logging.info(f"Wrote new sources.list to {srctarget}")
+        copy_all_files_from_dir(
+            srcdir=faietcdir / "apt" / "sources.list.d",
+            srcglob="*.sources",
+            tgtdir=d / "sources.list.d",
+        )
 
     nfsroot_conf = Path("/etc/fai/nfsroot.conf")
     if nfsroot_conf.exists():
-        text = nfsroot_conf.read_text(encoding="utf-8").splitlines()
-        new_lines = []
-        for line in text:
-            if line.startswith("FAI_DEBOOTSTRAP="):
-                new_lines.append(
-                    'FAI_DEBOOTSTRAP="trixie http://127.0.0.1:3142/snapshot.debian.org/archive/debian/20250906T112439Z"'
-                )
-                logging.info(f"Updated FAI_DEBOOTSTRAP in {nfsroot_conf}")
-            else:
-                new_lines.append(line)
-        nfsroot_conf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        nfsroot_conf.unlink()
+        logging.info(f"Deleted {nfsroot_conf}")
+
+    copy_all_files_from_dir(
+        srcdir=faietcdir, srcglob="nfsroot.conf", tgtdir=Path("/etc/fai")
+    )
 
 
 def do_start_acng(fainfsrootdir: Path, basefilesdir: Path, dryrun: bool = False):
-    # proxytext = (
-    #        'Acquire::http::Proxy "http://127.0.0.1:3142";\n'
-    #        'Acquire::https::Proxy "DIRECT";\n'
-    #        )
-
-    # aptconfbasedir = "etc/apt/apt.conf.d"
-
-    # globalproxyconf = Path(f"/{aptconfbasedir}/02proxy")
-    # nfsrootproxyconf =  fainfsrootdir / Path(f"{aptconfbasedir}/02proxy")
-
-    # for proxyconf in [globalproxyconf, nfsrootproxyconf]:
-    #    proxyconf.parent.mkdir(parents=True, exist_ok=True)
-    #    proxyconf.write_text(
-    #        proxytext,
-    #        encoding="utf-8"
-    #    )
-    #    logging.info(f"Wrote proxy config to {proxyconf}")
-    #    logging.info("Content:\n" + proxyconf.read_text(encoding="utf-8"))
-
-    conf_file = Path("/etc/apt-cacher-ng/acng.conf")
-    remapsnapdeb = "Remap-snapdeb: snapshot.debian.org/archive ; https://snapshot.debian.org/archive\n"
-    remapsnapubu = "Remap-snapubu: snapshot.ubuntu.com ; snapshot.ubuntu.com\n"
-    remapfai = (
-        "Remap-fai: fai-project.org/download ; https://fai-project.org/download\n"
-    )
-
-    # Read current content (create file if missing)
-    if conf_file.exists():
-        content = conf_file.read_text().splitlines(keepends=True)
-    else:
-        content = []
-
-    write = False
-    if not any(line.startswith("Remap-snapdeb:") for line in content):
-        content.append(remapsnapdeb)
-        write = True
-        logging.info("Added Remap-snapdeb entry to content")
-    else:
-        logging.info(" Remap-snapdeb entry already exists")
-
-    if not any(line.startswith("Remap-snapubu:") for line in content):
-        content.append(remapsnapubu)
-        write = True
-        logging.info("Added Remap-snapubu entry to content")
-    else:
-        logging.info(" Remap-snapubu entry already exists")
-
-    if not any(line.startswith("Remap-fai:") for line in content):
-        content.append(remapfai)
-        write = True
-        logging.info("Added Remap-fai entry to content")
-    else:
-        logging.info(" Remap-fai entry already exists")
-
-    if write:
-        conf_file.write_text("".join(content))
-        logging.info("Rewrote acng.conf")
-
     acng = subprocess_Popen_wrapper(
         "/usr/sbin/apt-cacher-ng -c /etc/apt-cacher-ng ForeGround=1", dryrun=dryrun
     )
@@ -226,6 +154,26 @@ def do_start_acng(fainfsrootdir: Path, basefilesdir: Path, dryrun: bool = False)
         time.sleep(2)
 
     return acng
+
+
+class ThreadedHTTPServer:
+    def __init__(self, root: str, port: int):
+        os.chdir(root)
+        handler = http.server.SimpleHTTPRequestHandler
+        self.httpd = socketserver.TCPServer(("", port), handler)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+
+    def start(self):
+        logging.info(
+            f"Serving {os.getcwd()} on http://0.0.0.0:{self.httpd.server_address[1]}"
+        )
+        self.thread.start()
+
+    def stop(self):
+        logging.info("Stopping HTTP server")
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join()
 
 
 def do_faimirror(
@@ -245,31 +193,6 @@ def do_faimirror(
         f"Mirror is outdated or missing, faimirror marker file {shlex.quote(str(faimirrormarker))} is not a file - running fai-mirror"
     )
 
-    cleanupfiles = []
-    aptkeysdirsrc = faietcdir / "apt" / "trusted.gpg.d"
-    aptkeysdirdest = Path("/etc/apt/trusted.gpg.d")
-
-    if aptkeysdirsrc.exists():
-        aptkeysdirdest.mkdir(parents=True, exist_ok=True)
-        aptkeyfilessrc = aptkeysdirsrc.glob("*.gpg")
-        for k in aptkeyfilessrc:
-            d = aptkeysdirdest / k.name
-            cleanupfiles.append(d)
-            logging.info(f"Copying {shlex.quote(str(k))} to {shlex.quote(str(d))}")
-            shutil.copy2(k, d)
-
-    aptconfdirsrc = faietcdir / "apt" / "apt.conf.d"
-    aptconfdirdest = Path("/etc/apt/apt.conf.d")
-
-    if aptconfdirsrc.exists():
-        aptconfdirdest.mkdir(parents=True, exist_ok=True)
-        aptconffilessrc = aptconfdirsrc.glob("*.conf")
-        for c in aptconffilessrc:
-            d = aptconfdirdest / c.name
-            cleanupfiles.append(d)
-            logging.info(f"Copying {shlex.quote(str(c))} to {shlex.quote(str(d))}")
-            shutil.copy2(c, d)
-
     subprocess_run_wrapper(
         cmd=(
             "fai-mirror -b -m1 "
@@ -285,10 +208,6 @@ def do_faimirror(
             f"Mirror finished, touching faimirror marker file: {shlex.quote(str(faimirrormarker))}"
         )
         faimirrormarker.touch()
-
-    for f in cleanupfiles:
-        logging.info(f"Deleting {shlex.quote(str(f))} after mirroring")
-        f.unlink()
 
 
 def do_make_basefile(
@@ -463,17 +382,15 @@ def do_build_iso(
 
     imgfilefull = outfilefull.with_suffix(".img")
 
-    logging.info(
-        f"Now that we created an ISO {shlex.quote(str(outfilefull))}, delete {shlex.quote(str(imgfilefull))} if exists, because it is outdated"
-    )
     if imgfilefull.is_file():
+        logging.info(
+            f"Now that we created an ISO {shlex.quote(str(outfilefull))}, delete {shlex.quote(str(imgfilefull))}, because it is outdated"
+        )
         imgfilefull.unlink()
 
-    logging.info(
-        f"Cleanup {shlex.quote(str(classesfile))} and  {shlex.quote(str(variablesfile))} if exists"
-    )
     for f in [classesfile, variablesfile]:
         if f.is_file():
+            logging.info(f"Cleanup {shlex.quote(str(f))}")
             f.unlink()
 
 
@@ -719,10 +636,48 @@ def main():
     logging.info(f"basefile: {shlex.quote(str(basefile))}")
     logging.info(f"outfile: {shlex.quote(str(outfile))}")
 
-    reset_apt_sources()
+    reset_apt_sources(faietcdir=fainfsetcdir)
+
+    cleanupfiles = []
+    installcleanupfiles = []
+    nfscleanupfiles = []
+
+    for etcdir in [faietcdir, fainfsetcdir]:
+        cleanupfiles.extend(
+            copy_all_files_from_dir(
+                srcdir=etcdir / "apt" / "trusted.gpg.d",
+                srcglob="*.gpg",
+                tgtdir=Path("/etc/apt/trusted.gpg.d"),
+            )
+        )
+        cleanupfiles.extend(
+            copy_all_files_from_dir(
+                srcdir=etcdir / "apt" / "trusted.gpg.d",
+                srcglob="*.gpg",
+                tgtdir=Path("/usr/share/keyrings"),
+            )
+        )
+        cleanupfiles.extend(
+            copy_all_files_from_dir(
+                srcdir=etcdir / "apt-cacher-ng",
+                srcglob="*.conf",
+                tgtdir=Path("/etc/apt-cacher-ng"),
+            )
+        )
 
     acng = do_start_acng(
         fainfsrootdir=fainfsrootdir, basefilesdir=basefilesdir, dryrun=dryrun
+    )
+
+    server = ThreadedHTTPServer(root="/var/cache/apt-cacher-ng", port=8000)
+    server.start()
+
+    installcleanupfiles.extend(
+        copy_all_files_from_dir(
+            srcdir=faietcdir / "apt" / "apt.conf.d",
+            srcglob="*.conf",
+            tgtdir=Path("/etc/apt/apt.conf.d"),
+        )
     )
 
     do_faimirror(
@@ -732,20 +687,32 @@ def main():
         dryrun=dryrun,
     )
 
-    for b in [basefile, basefilenfs]:
-        do_make_basefile(
-            basefilesdir=basefilesdir,
-            basefile=b,
-            faiconfigdir=faiconfigdir,
-            dryrun=dryrun,
-        )
-
-    basefilefull = basefilesdir / basefile
-    basefiledest = faiconfigdir / "basefiles" / f"{basefileclass}.tar.xz"
-    logging.info(
-        f"Copying {shlex.quote(str(basefilefull))} to {shlex.quote(str(basefiledest))}"
+    do_make_basefile(
+        basefilesdir=basefilesdir,
+        basefile=basefile,
+        faiconfigdir=faiconfigdir,
+        dryrun=dryrun,
     )
-    shutil.copy2(basefilefull, basefiledest)
+
+    for f in installcleanupfiles:
+        if f.exists and (f.is_file() or f.is_dir()):
+            logging.info(f"Deleting {shlex.quote(str(f))}")
+            f.unlink()
+
+    nfscleanupfiles.extend(
+        copy_all_files_from_dir(
+            srcdir=fainfsetcdir / "apt" / "apt.conf.d",
+            srcglob="*.conf",
+            tgtdir=Path("/etc/apt/apt.conf.d"),
+        )
+    )
+
+    do_make_basefile(
+        basefilesdir=basefilesdir,
+        basefile=basefilenfs,
+        faiconfigdir=faiconfigdir,
+        dryrun=dryrun,
+    )
 
     do_make_fainfsroot(
         faietcdir=fainfsetcdir,
@@ -755,8 +722,17 @@ def main():
         dryrun=dryrun,
     )
 
-    acng.terminate()
-    acng.wait()
+    for f in nfscleanupfiles:
+        if f.exists and (f.is_file() or f.is_dir()):
+            logging.info(f"Deleting {shlex.quote(str(f))}")
+            f.unlink()
+
+    basefilefull = basefilesdir / basefile
+    basefiledest = faiconfigdir / "basefiles" / f"{basefileclass}.tar.xz"
+    logging.info(
+        f"Copying {shlex.quote(str(basefilefull))} to {shlex.quote(str(basefiledest))}"
+    )
+    shutil.copy2(basefilefull, basefiledest)
 
     do_build_iso(
         faiclasses=faiclasses,
@@ -775,6 +751,18 @@ def main():
 
     logging.info(f"Deleting {shlex.quote(str(basefiledest))}")
     basefiledest.unlink()
+
+    server.stop()
+
+    acng.terminate()
+    acng.wait()
+
+    for f in cleanupfiles:
+        if f.exists and (f.is_file() or f.is_dir()):
+            logging.info(f"Deleting {shlex.quote(str(f))}")
+            f.unlink()
+
+    logging.info("Script finished.")
 
 
 if __name__ == "__main__":
