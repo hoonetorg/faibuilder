@@ -680,6 +680,14 @@ def main():
         )
     )
 
+    installcleanupfiles.extend(
+        copy_all_files_from_dir(
+            srcdir=faietcdir,
+            srcglob="mk-basefile.conf",
+            tgtdir=Path("/etc/fai"),
+        )
+    )
+
     do_faimirror(
         faiclasses=faiclasses,
         faietcdir=faietcdir,
@@ -704,6 +712,14 @@ def main():
             srcdir=fainfsetcdir / "apt" / "apt.conf.d",
             srcglob="*.conf",
             tgtdir=Path("/etc/apt/apt.conf.d"),
+        )
+    )
+
+    nfscleanupfiles.extend(
+        copy_all_files_from_dir(
+            srcdir=fainfsetcdir,
+            srcglob="mk-basefile.conf",
+            tgtdir=Path("/etc/fai"),
         )
     )
 
