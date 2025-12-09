@@ -59,6 +59,7 @@ def release(args: list, dryrun: bool = False):
     subprocess_run_wrapper(
         cmd=(
             "podman run "
+            "--pids-limit=-1 "
             f"-name {shlex.quote(IMAGENAME)} "
             "--rm"
             f"-w {shlex.quote(str(WORKSPACE))} "
@@ -94,6 +95,7 @@ def build(
         cmd=(
             "podman "
             "run "
+            "--pids-limit=-1 "
             f"--name {shlex.quote(str(IMAGENAME))} "
             "--privileged "
             f"{ctrargs}"
@@ -147,6 +149,11 @@ if __name__ == "__main__":
         default="./host.json",
         help="Host config file (default './host.json')",
     )
+    parser.add_argument(
+        "--cachedrepo",
+        action="store_true",
+        help="Use Apt-Cacher-NG cache as static repo (no internet for ISO/IMG build required)",
+    )
 
     args, passthrough = parser.parse_known_args()
 
@@ -157,6 +164,10 @@ if __name__ == "__main__":
     if args.build:
         build_image(sourcedir=sourcedir, dryrun=dryrun)
         sys.exit(0)
+
+    etcsubdir = "dynamic"
+    if args.cachedrepo:
+        etcsubdir = "static"
 
     globalconffile = get_path(args.globalconffile)
     if not is_readable_file(file=globalconffile):
@@ -180,10 +191,10 @@ if __name__ == "__main__":
 
     acngdir = get_path(globalconf["acngdir"])
     basefilesdir = get_path(globalconf["basefilesdir"])
-    faietcdir = get_path(hostconf["faietcdir"])
+    faietcdir = get_path(f"{hostconf["faietcdir"]}/{etcsubdir}")
     faiconfigdir = get_path(globalconf["faiconfigdir"])
     faimirrordir = get_path(hostconf["faimirrordir"])
-    fainfsetcdir = get_path(globalconf["fainfsetcdir"])
+    fainfsetcdir = get_path(f"{globalconf["fainfsetcdir"]}/{etcsubdir}")
     fainfsrootdir = get_path(globalconf["fainfsrootdir"])
     outputdir = get_path(globalconf["outputdir"])
 

@@ -48,4 +48,11 @@ COPY src/grub.cfg /usr/local/etc/grub.cfg
 COPY src/faibuilder /usr/local/bin/faibuilder
 RUN chmod +x /usr/local/bin/faibuilder
 
+# We used a patched version to debug an error when fai-mirror 
+# crashed when syncing larger repos
+# we keep the patched fai-mirror in the repo for further 
+# debugging, but comment it out for now
+#COPY src/fai-mirror.patched /usr/bin/fai-mirror
+#RUN chmod +x /usr/bin/fai-mirror
+
 ENTRYPOINT ["/usr/local/bin/faibuilder"]
