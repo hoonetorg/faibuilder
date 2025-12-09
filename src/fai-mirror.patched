@@ -1,0 +1,438 @@
+#! /bin/bash
+
+#*********************************************************************
+#
+# fai-mirror -- create and manage a partial mirror for FAI
+#
+# This script is part of FAI (Fully Automatic Installation)
+# (c) 2004-2025, Thomas Lange, lange@cs.uni-koeln.de
+#
+#*********************************************************************
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; see the file COPYING. If not, write to the
+# Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston,
+# MA 02111-1307, USA.
+#*********************************************************************
+
+# variables: NFSROOT, FAI_CONFIGDIR, FAI_ETC_DIR
+
+export FAI_ROOT=/ # do not execute in chroot, needed for install_packages call
+export PATH=$PATH:/usr/sbin
+
+set -Eeuo pipefail
+export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
+set -x
+
+: "${FAI_DEBMIRROR:=}"
+: "${FAI_ETC_DIR:=}"
+: "${arch:=}"
+: "${cclasses:=}"
+: "${exclasses:=}"
+: "${csdir:=}"
+: "${aptpref:=}"
+
+#trap "umount_dirs" EXIT ERR
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+usage() {
+
+    echo "fai-mirror -- create and manage a partial mirror for FAI."
+    echo "Please read the manual page fai-mirror(1)."
+    exit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+die() {
+
+    local e=$1   # first parameter is the exit code
+    shift
+
+    echo "$*" >&2 # print error message
+    exit $e
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+excludeclass() {
+
+    # removes/excludes all classes in $* from $classes
+    local insert eclasses newclass c e
+
+    eclasses="$*"
+    eclasses=${eclasses//,/ }
+
+    for c in $classes; do
+        insert=1
+        for e in $eclasses; do
+          [ $c = $e ] && insert=0
+        done
+        [ $insert = 1 ] && newclass="$newclass $c"
+    done
+    classes="$newclass"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#umount_dirs() {
+#
+#    [ "$FAI_DEBMIRROR" ] && umount $MNTPOINT 2>/dev/null 1>&2 || true
+#}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+cleandirs() {
+
+    return # currently nothing to do
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+initialize() {
+
+    # TODO: root is only needed when FAI_DEBMIRROR is defined. Then we
+    # must mount a directory
+
+    aptcache=$mirrordir/aptcache   # holds the package cache data
+    archivedir=$aptcache/var/cache/apt/archives
+    statefile=$aptcache/statefile
+
+    logdir="$aptcache/logs/$(date +%F_%H%M%S)"
+    mkdir -p "$logdir"
+
+    # also used in install_packages.conf
+    export aptoptions=" \
+      -o Aptitude::Log=/dev/null \
+      -o Aptitude::CmdLine::Ignore-Trust-Violations=yes\
+      -o APT::Get::AllowUnauthenticated=true \
+      -o Acquire::AllowInsecureRepositories=true \
+      -o DPkg::force-conflicts::=yes \
+      -o Dir::State=$aptcache/var/lib/apt \
+      -o Dir::Log=$aptcache/var/log/apt \
+      -o Dir::State::extended_states=$aptcache/var/lib/apt/lists/extended_states \
+      -o Dir::State::status=$statefile \
+      -o Dir::Cache=$aptcache/var/cache/apt \
+      -o Dir::State=$aptcache/var/cache/apt \
+      -o Dir::Cache::Archives=$archivedir \
+      -o Dir::Etc=$aptcache/etc/apt/ \
+      -o Dir::State::Lists=$aptcache/var/lib/apt/lists/"
+
+    # used by install_packages
+    export FAI_ARCHIVE_DIR=$archivedir
+
+    if [ -n "$arch" ]; then
+        aptoptions="$aptoptions -o APT::Architecture=$arch" # add architecture
+    fi
+
+    # we only need some empty dirs
+    set -e
+    mkdir -p $archivedir/partial $aptcache/etc/apt/preferences.d $aptcache/var/lib/apt/lists/partial $aptcache/var/log/apt
+    > $statefile
+    set +e
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+delete_base_packages() {
+
+    # now delete all packages that are already included in base.tar.xz
+    local p all arch
+
+    if [ ! -f $NFSROOT/var/tmp/base-pkgs.lis ]; then
+        echo "$NFSROOT/var/tmp/base-pkgs.lis not available."
+        echo "Can't remove wasteful packages that are already in base.tar.xz."
+        return
+    fi
+    echo "Removing packages that are already included in base.tar.xz"
+    for p in $(< $NFSROOT/var/tmp/base-pkgs.lis); do
+
+        all=(${p//:/ })
+        p=${all[0]}
+        arch=${all[1]}
+
+        if [ -f $archivedir/${p}_*$arch.deb ]; then
+            [ $verbose -eq 1 ] && echo "deleting package $p $arch"
+            rm $archivedir/${p}_*$arch.deb
+        fi
+    done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+add_base_packages() {
+
+    local plist
+    # add packages from base.tar.xz and additional packages in nfsroot
+
+    # arch dependent packages defined in fai-make-nfsroot
+    echo "Adding packages of $cfdir/NFSROOT."
+    if [ -f $NFSROOT/var/tmp/packages.nfsroot ]; then
+        plist=$(< $NFSROOT/var/tmp/packages.nfsroot)
+        apt-get -o Debug::pkgProblemResolver=true -o Debug::Acquire::http=true -d $aptoptions -y --fix-missing install $plist |& tee "$logdir/apt-install_nfsroot.log"
+    else
+        echo "WARNING: $NFSROOT/var/tmp/packages.nfsroot does not exists." >&2
+        echo "Can't add those packages. Maybe the nfsroot is not yet created." >&2
+    fi
+
+    mv $aptcache/etc/apt/sources.list $aptcache   # save sources.list
+    # now use different sources.list for debootstrap packages
+    echo "$FAI_DEBOOTSTRAP" | awk '{printf "deb %s %s main\n",$2,$1}' | sed -e 's/file:/copy:/' > $aptcache/etc/apt/sources.list
+    echo "Adding packages from $NFSROOT/var/tmp/base-pkgs.lis"
+    if [ -f $NFSROOT/var/tmp/base-pkgs.lis ]; then
+        plist=$(< $NFSROOT/var/tmp/base-pkgs.lis)
+	apt-get -o Debug::Acquire::http=true -o Acquire::Retries=0 $aptoptions update |& tee "$logdir/apt-update-debootstrap.log"
+        apt-get -o Debug::pkgProblemResolver=true -o Debug::Acquire::http=true -d $aptoptions -y --fix-missing install $plist |& tee "$logdir/apt-install_debootstrap.log"
+    else
+        echo "WARNING: $NFSROOT/var/tmp/base-pkgs.lis does not exists." >&2
+        echo "Can't add those packages. Maybe the nfsroot is not yet created." >&2
+    fi
+    mv $aptcache/sources.list $aptcache/etc/apt/sources.list   # restore sources.list
+    apt-get -o Debug::Acquire::http=true -o Acquire::Retries=0 $aptoptions update |& tee "$logdir/apt-update-postbase.log"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+set-classes() {
+
+    local addclasses
+    # if -c is given, ignore -x
+    if [ -n "$cclasses" ]; then
+        export classes=${cclasses//,/ }
+        return
+    fi
+
+    set +e
+    # all available file names are classes
+    classes=$(cd $FAI_CONFIGDIR/package_config; ls -1 | grep -E -i "^[a-zA-Z0-9_-]+$")
+    addclasses=$(grep -h PACKAGES $FAI_CONFIGDIR/package_config/* | sed -e 's/#.*//' | awk '{printf $3"\n"$4"\n"$5"\n"$6"\n"}')
+    export classes=$(echo -e "$classes\n$addclasses\n" | sort | uniq)
+    [ -n "$exclasses" ] && excludeclass $exclasses
+    set -e
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mk_class_var_list() {
+
+    # create a list of files named class/*.var that contain a definition of a  variable that is
+    # used in package_config/<classes>
+
+    # we assume, that variables used in package_config are defined in class/*.var.
+    # For all classes search if there's a variables used in package_config/CLASS
+    # For all variables found look which files class/CLASS.var define these variables.
+
+    local -a variables=()
+    local filelist classlist sourefiles
+    local c i f
+
+    #filelist: all files in package_config which are also a defined class
+    for c in $classes; do
+	if [ -f $FAI_CONFIGDIR/package_config/$c ]; then
+	    filelist+=" $c"
+	fi
+    done
+
+    if [ -z "$filelist" ]; then
+	   return
+    fi
+
+    # make the list of variables that are used
+    # regex: $abc or ${abc}
+    variables=($(cd $FAI_CONFIGDIR/package_config;grep -h -P -o '\$[A-Za-z0-9_]+|\$\{[A-Za-z0-9_]+\}' $filelist|sort|uniq))
+
+    # debug
+    #for v in ${variables[@]}; do
+    #    echo Variable found: $v
+    #done
+
+    # create a regex like varname= for all variables
+    for i in ${!variables[@]}; do
+	variables[i]=$(echo ${variables[i]} | tr -d /{}$/)
+	variables[i]+="="
+    done
+
+    # classlist: make list of files in class, which are also a class
+    for c in $classes; do
+	if [ -f $FAI_CONFIGDIR/class/$c.var ]; then
+	    classlist+=" $FAI_CONFIGDIR/class/$c.var"
+	fi
+    done
+    # look for variable definition in this list
+    for f in $classlist; do
+	for i in ${!variables[@]}; do
+	    if grep -q -P "${variables[i]}" $f; then
+		sourefiles+=" $f"
+		break
+	    fi
+	done
+    done
+
+    # these files contain a variable definition which is needed
+    echo $sourefiles
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+preserve=0
+verbose=0
+add=1
+qflag=-qq
+bcount=0
+setvariables=0
+while getopts "a:bBvhx:pc:C:m:s:P:V" opt ; do
+    case "$opt" in
+        a) arch=$OPTARG ;;
+        B) add=0 ; ((++bcount)) ;;
+        b) add=2 ; ((++bcount)) ;;
+        C) cfdir=$OPTARG ;;
+        h) usage ;;
+        x) exclasses="$OPTARG";;
+        c) cclasses="$OPTARG";;
+        m) MAXPACKAGES="$OPTARG";;
+        p) preserve=1;;
+	s) csdir="$OPTARG";;
+        v) verbose=1; vflag=-v; qflag='';;
+        V) setvariables=1 ;;
+        P) aptpref="$OPTARG";;
+        ?) die 1 "Unknown option";;
+    esac
+done
+shift $((OPTIND - 1))
+
+# use FAI_ETC_DIR from environment variable
+[ -n "$FAI_ETC_DIR" -a -z "$cfdir" ] && echo "Using environment variable \$FAI_ETC_DIR."
+# use -C option if present otherwise use $FAI_ETC_DIR or default to /etc/fai
+[ -z "$cfdir" ] && cfdir=${FAI_ETC_DIR:=/etc/fai}
+cfdir=$(readlink -f $cfdir) # canonicalize path
+[ ! -d "$cfdir" ] && die 6 "$cfdir is not a directory"
+[ "$verbose" -eq 1 ] && echo "Using configuration files from $cfdir"
+[ $bcount -gt 1 ] && die 7 "You can't use -b and -B simultaneously."
+. $cfdir/fai.conf
+. $cfdir/nfsroot.conf
+: ${MNTPOINT:=/media/mirror}  # default value
+export NFSROOT
+
+if [ -n "$csdir" ]; then
+    FAI_CONFIGDIR=$csdir # override by -s
+fi
+command -v reprepro >&/dev/null || die 8 "reprepro not found. Please install the package."
+[ -n "$exclasses" -a -n "$cclasses" ] && die 3 "Options -x and -c not allowed at the same time."
+
+# use first argument if given, use variable mirrordir if not argument was given
+[ -n "$1" ] && mirrordir=$1
+[ -z "$mirrordir" ] && die 2 "Please give the absolute path to the mirror."
+{ echo $mirrordir | grep -E -q '^/'; } || die 4 "Mirrordir must start with a slash /."
+
+[ -d $FAI_CONFIGDIR/package_config ] || die 6 "Can't find package config files in $FAI_CONFIGDIR."
+
+# set default if undefined
+: ${MAXPACKAGES:=1}
+export MAXPACKAGES
+
+set-classes
+if [ "$setvariables" -eq 1 ]; then
+    flist=$(mk_class_var_list)
+    set -a
+    for f in $flist; do
+	echo Sourcing variable definitions in $f
+	source $flist
+    done
+    set +a
+fi
+
+initialize
+
+# if we are using nfs mounts for Debian mirror, this may fail here, since inside a chroot environment different dir are used
+# if sources.list includes file AND FAI_DEBMIRROR is defined we have to mount
+# otherwise mounting is not needed. call task_mirror
+#if [ "$FAI_DEBMIRROR" ]; then
+#    mkdir -p $MNTPOINT
+#    mount -r $FAI_DEBMIRROR $MNTPOINT || exit 9
+#fi
+
+# TODO: use -p to preserve sources.list
+sed -e 's/file:/copy:/' $cfdir/apt/sources.list > $aptcache/etc/apt/sources.list
+if [ "$(ls -A $cfdir/apt/sources.list.d/ 2>/dev/null)" ]; then
+    sed -e 's/file:/copy:/' $cfdir/apt/sources.list.d/* >> $aptcache/etc/apt/sources.list
+fi
+
+if [ -f "$aptpref" ]; then
+    cp "$aptpref" $aptcache/etc/apt/preferences
+fi
+if [ -d $cfdir/apt/preferences.d ]; then
+    cp -av $cfdir/apt/preferences.d $aptcache/etc/apt
+fi
+
+# use the trusted keys from the host
+cp -a /etc/apt/trusted.gpg.d $aptcache/etc/apt
+
+echo "Getting package information"
+apt-get -o Debug::Acquire::http=true -o Acquire::Retries=0 $aptoptions update |& tee "$logdir/apt-update-initial.log"
+
+[ $add -eq 1 ] && add_base_packages
+echo "Downloading packages for classes:" $classes
+if FAI=$FAI_CONFIGDIR install_packages -N -d $vflag |& tee "$logdir/install_packages.log"; then
+    :
+else
+    echo "ERROR when downloading packages. See $logdir/install_packages.log" >&2
+    exit 101
+fi
+#umount_dirs
+trap "" EXIT ERR
+[ $add -eq 0 ] && delete_base_packages
+
+
+# in still undefined, use host architecture
+if [ -z "$arch" ]; then
+    arch=$(dpkg  --print-architecture)
+    arch="$arch $(dpkg --print-foreign-architectures)"
+fi
+
+# create mirror directory structure
+echo "Calling reprepro"
+mkdir -p $mirrordir/conf
+cat > $mirrordir/conf/distributions <<EOF   # generate config file for reprepro
+Codename: cskoeln
+Architectures: $arch
+Components: main non-free contrib non-free-firmware
+DebIndices: Packages Release . .xz
+Description: Package repository created by fai-mirror
+Label: fai-project.org
+Origin: fai-mirror
+EOF
+
+# check if backports are used
+bponame=$(grep -E '^deb ' $aptcache/etc/apt/sources.list | grep -P -o '\S+-backports' | head -n 1)
+# add entry for backports
+if [ -n "$bponame" ]; then
+     cat >> $mirrordir/conf/distributions <<EOF
+
+Codename: $bponame
+Architectures: $arch
+Components: main non-free contrib non-free-firmware
+DebIndices: Packages Release . .xz
+Description: Package repository created by fai-mirror
+Label: fai-project.org
+Origin: fai-mirror
+EOF
+
+# maybe using reprepro pulls it's possible to move instead of copy the packages
+    if ls $archivedir/*~bpo[0-9]*+[0-9-]*_*.deb >/dev/null 2>&1; then
+        reprepro -V -vv -b $mirrordir includedeb $bponame $archivedir/*~bpo[0-9]*+[0-9-]*_*.deb |& tee "$logdir/reprepro-backports.log"
+        rm -f $archivedir/*~bpo[0-9]*+[0-9-]*_*.deb
+    fi
+fi
+
+if ! compgen -G "$archivedir/*.deb" >/dev/null; then
+    ls -l "$archivedir" || true
+    echo "No .deb files staged in $archivedir — earlier step failed." >&2
+    exit 102
+fi
+echo "Staged package count: $(ls -1 $archivedir/*.deb 2>/dev/null | wc -l)"
+# allow package without the .deb suffix. At least they must start with a char and contain an underscore or hyphen
+
+
+for f in "$archivedir"/*.deb; do
+  echo "### including $f" |& tee -a "$logdir/reprepro-main.log"
+  reprepro --ignore=extension -V -vv -b $mirrordir includedeb cskoeln "$f" |& tee -a "$logdir/reprepro-main.log"
+done
+
+#reprepro --ignore=extension -V -vv -b $mirrordir includedeb cskoeln $archivedir/[0-9a-zA-Z]*[_-]* |& tee "$logdir/reprepro-main.log"
+#rm -r $archivedir/[0-9a-zA-Z]*[_-]*
+
+echo "$0 finished."
+echo -n "Number of packages in the mirror: "
+find $mirrordir -name \*.deb | wc -l
+echo -n "Mirror size and location: ";du -sh --exclude aptcache --exclude db $mirrordir
+cleandirs
+
