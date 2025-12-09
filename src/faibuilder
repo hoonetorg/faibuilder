@@ -195,7 +195,7 @@ def do_faimirror(
 
     subprocess_run_wrapper(
         cmd=(
-            "fai-mirror -b -m1 "
+            "fai-mirror -v -V -b -m1 "
             f"-C {shlex.quote(str(faietcdir))} "
             f"-c '{','.join(faiclasses)},GRUB_PC,GRUB_EFI,AMD64,FB' "
             f"{shlex.quote(str(faimirrordir))}"
@@ -426,7 +426,7 @@ def do_build_img_from_iso(
     for p in {isopath, efipath, cdpath}:
         p.mkdir(parents=True, exist_ok=True)
 
-    imagesizegb = 3
+    imagesizegb = 6
     efilabel = "EFI"
     cdlabel = "FAI_CD"
 
