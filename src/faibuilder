@@ -193,9 +193,10 @@ def do_faimirror(
         f"Mirror is outdated or missing, faimirror marker file {shlex.quote(str(faimirrormarker))} is not a file - running fai-mirror"
     )
 
+    #"fai-mirror -v -V -b -Im9999 "
     subprocess_run_wrapper(
         cmd=(
-            "fai-mirror -v -V -b -Im9999 "
+            "fai-mirror -v -V -b -m1 "
             f"-C {shlex.quote(str(faietcdir))} "
             f"-c '{','.join(faiclasses)},GRUB_PC,GRUB_EFI,AMD64,FB' "
             f"{shlex.quote(str(faimirrordir))}"
