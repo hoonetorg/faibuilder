@@ -22,11 +22,11 @@ RUN apt-get update \
     shim-signed \
  && rm -rf /var/lib/apt/lists/*
 
-RUN wget -O /usr/share/keyrings/fai-project-archive-keyring.gpg \
+RUN wget -O /usr/share/keyrings/fai-project.gpg \
       https://fai-project.org/download/fai-project.gpg
 
 RUN echo \
-    "deb [signed-by=/usr/share/keyrings/fai-project-archive-keyring.gpg] \
+    "deb [signed-by=/usr/share/keyrings/fai-project.gpg] \
      https://fai-project.org/download trixie koeln" \
     > /etc/apt/sources.list.d/fai-project.list
 
@@ -52,7 +52,7 @@ RUN chmod +x /usr/local/bin/faibuilder
 # crashed when syncing larger repos
 # we keep the patched fai-mirror in the repo for further 
 # debugging, but comment it out for now
-#COPY src/fai-mirror.patched /usr/bin/fai-mirror
+#COPY src/fai-mirror-6.5.1.patched /usr/bin/fai-mirror
 #RUN chmod +x /usr/bin/fai-mirror
 
 ENTRYPOINT ["/usr/local/bin/faibuilder"]

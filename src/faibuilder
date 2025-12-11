@@ -195,7 +195,7 @@ def do_faimirror(
 
     subprocess_run_wrapper(
         cmd=(
-            "fai-mirror -v -V -b -m1 "
+            "fai-mirror -v -V -b -Im9999 "
             f"-C {shlex.quote(str(faietcdir))} "
             f"-c '{','.join(faiclasses)},GRUB_PC,GRUB_EFI,AMD64,FB' "
             f"{shlex.quote(str(faimirrordir))}"
