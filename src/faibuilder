@@ -306,6 +306,7 @@ def do_build_iso(
     rootpw = str(hostconf["rootpw"])
     username = str(hostconf["username"])
     userpw = str(hostconf["userpw"])
+    disklayoutid = str(hostconf["disklayoutid"])
     diskpath = Path(hostconf["diskpath"])
     rootsizemib = int(hostconf["rootsizemib"])
     cryptpw = str(hostconf["cryptpw"])
@@ -327,6 +328,7 @@ def do_build_iso(
     logging.info("rootpw: hidden")
     logging.info(f"username: {str(username)}")
     logging.info("userpw: hidden")
+    logging.info(f"disklayoutid: {shlex.quote(str(disklayoutid))}")
     logging.info(f"diskpath: {shlex.quote(str(diskpath))}")
     logging.info(f"rootsizemib: {int(rootsizemib)}")
     logging.info("cryptpw: hidden")
@@ -357,6 +359,7 @@ def do_build_iso(
         f"ROOTPW={shlex.quote(str(rootpw))}\n"
         f"username='{str(username)}'\n"
         f"USERPW={shlex.quote(str(userpw))}\n"
+        f"DISKLAYOUTID={shlex.quote(str(disklayoutid))}\n"
         f"DISKPATH={shlex.quote(str(diskpath))}\n"
         f"CRYPTPW={shlex.quote(str(cryptpw))}\n"
         f"ROOTSIZEMIB='{int(rootsizemib)}'\n"
