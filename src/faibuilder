@@ -193,7 +193,7 @@ def do_faimirror(
         f"Mirror is outdated or missing, faimirror marker file {shlex.quote(str(faimirrormarker))} is not a file - running fai-mirror"
     )
 
-    #"fai-mirror -v -V -b -Im9999 "
+    # "fai-mirror -v -V -b -Im9999 "
     subprocess_run_wrapper(
         cmd=(
             "fai-mirror -v -V -b -m1 "
@@ -308,6 +308,7 @@ def do_build_iso(
     userpw = str(hostconf["userpw"])
     disklayoutid = str(hostconf["disklayoutid"])
     diskpath = Path(hostconf["diskpath"])
+    startpartition = int(hostconf.get("startpartition", int(-1)))
     rootsizemib = int(hostconf["rootsizemib"])
     cryptpw = str(hostconf["cryptpw"])
     outfile = Path(hostconf["outfile"])
@@ -330,6 +331,7 @@ def do_build_iso(
     logging.info("userpw: hidden")
     logging.info(f"disklayoutid: {shlex.quote(str(disklayoutid))}")
     logging.info(f"diskpath: {shlex.quote(str(diskpath))}")
+    logging.info(f"startpartition: {int(startpartition)}")
     logging.info(f"rootsizemib: {int(rootsizemib)}")
     logging.info("cryptpw: hidden")
     logging.info(f"outfile: {shlex.quote(str(outfile))}")
@@ -361,8 +363,9 @@ def do_build_iso(
         f"USERPW={shlex.quote(str(userpw))}\n"
         f"DISKLAYOUTID={shlex.quote(str(disklayoutid))}\n"
         f"DISKPATH={shlex.quote(str(diskpath))}\n"
+        f"STARTPARTITION={int(startpartition)}\n"
+        f"ROOTSIZEMIB={int(rootsizemib)}\n"
         f"CRYPTPW={shlex.quote(str(cryptpw))}\n"
-        f"ROOTSIZEMIB='{int(rootsizemib)}'\n"
     )
 
     if dryrun:
