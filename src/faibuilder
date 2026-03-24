@@ -25,6 +25,7 @@ FAICONFIGDIRPATH = "/srv/fai/config"
 FAIMIRRORDIRPATH = "/srv/fai/mirror"
 FAINFSETCDIRPATH = "/srv/fai/nfsetc"
 FAINFSROOTDIRPATH = "/srv/fai/nfsroot"
+EXTRAFILESDIRPATH = "/srv/fai/extrafiles"
 OUTPUTDIRPATH = "/srv/fai/output"
 GLOBALCONF = "/srv/fai/faibuilder.json"
 HOSTCONF = "/srv/fai/host.json"
@@ -79,6 +80,14 @@ def split_multi_ext(path: Path):
 
 def is_readable_file(file: Path) -> bool:
     return file.exists() and file.is_file() and os.access(file, os.R_OK)
+
+
+def get_size_mib(folder):
+    total = 0
+    for dirpath, _, files in os.walk(folder):
+        for f in files:
+            total += os.path.getsize(os.path.join(dirpath, f))
+    return max(64, int(total // (1024**2) * 1.2))
 
 
 def copy_all_files_from_dir(srcdir: Path, srcglob: str, tgtdir: Path) -> list:
@@ -403,6 +412,7 @@ def do_build_iso(
 
 def do_build_img_from_iso(
     isofilefull: Path,
+    extrafilesdir: Path,
     dryrun: bool = False,
 ):
 
@@ -429,26 +439,35 @@ def do_build_img_from_iso(
     isopath = Path("/iso")
     efipath = Path("/efi")
     cdpath = Path("/cd")
+    extrapath = Path("/extra")
 
-    for p in {isopath, efipath, cdpath}:
+    for p in {isopath, efipath, cdpath, extrapath}:
         p.mkdir(parents=True, exist_ok=True)
 
-    imagesizegb = 6
+    efi_size_mib = 256
+    efi_begin_mib = 1
+    efi_end_mib = efi_begin_mib + efi_size_mib
+    isosizemib = int(os.path.getsize(os.path.join(str(isofilefull))) // (1024**2) * 1.2)
+    iso_end_mib = efi_end_mib + isosizemib
+    extra_size_mib = get_size_mib(str(extrafilesdir)) + 256
+    imagesizemib = efi_end_mib + isosizemib + int(extra_size_mib * 1.2)
+
+    logging.info(f"efi_size_mib: {efi_size_mib}")
+    logging.info(f"efi_begin_mib: {efi_begin_mib}")
+    logging.info(f"efi_end_mib: {efi_end_mib}")
+    logging.info(f"isosizemib: {isosizemib}")
+    logging.info(f"iso_end_mib: {iso_end_mib}")
+    logging.info(f"extra_size_mib: {extra_size_mib}")
+    logging.info(f"imagesizemib: {imagesizemib}")
+
     efilabel = "EFI"
     cdlabel = "FAI_CD"
-
-    logging.info("Mounting ISO contents")
-    subprocess_run_wrapper(
-        cmd=(
-            f"mount -o loop,ro {shlex.quote(str(isofilefull))} {shlex.quote(str(isopath))}"
-        ),
-        dryrun=dryrun,
-    )
+    extralabel = "EXTRA"
 
     logging.info("Creating disk image")
     subprocess_run_wrapper(
         cmd=(
-            f"qemu-img create -f raw -o preallocation=off {shlex.quote(str(imgfilefull))} {int(imagesizegb)}G"
+            f"qemu-img create -f raw -o preallocation=off {shlex.quote(str(imgfilefull))} {int(imagesizemib)}M"
         ),
         dryrun=dryrun,
     )
@@ -459,14 +478,24 @@ def do_build_img_from_iso(
             "parted --script "
             f"{shlex.quote(str(imgfilefull))} "
             "mklabel gpt "
-            "mkpart primary fat32 1MiB 125MiB "
-            "mkpart primary ext4 125MiB 100%"
+            f"mkpart primary fat32 {efi_begin_mib}MiB {efi_end_mib}MiB "
+            f"mkpart primary btrfs {efi_end_mib}MiB {iso_end_mib}MiB  "
+            f"mkpart primary btrfs {iso_end_mib}MiB 100%"
         ),
         dryrun=dryrun,
     )
 
     logging.info("Mapping partitions")
+    loopdevice = None
     try:
+        logging.info("Mounting ISO contents")
+        subprocess_run_wrapper(
+            cmd=(
+                f"mount -o loop,ro {shlex.quote(str(isofilefull))} {shlex.quote(str(isopath))}"
+            ),
+            dryrun=dryrun,
+        )
+
         result = subprocess_run_wrapper(
             cmd=(f"losetup --show -fP {shlex.quote(str(imgfilefull))}"),
             dryrun=dryrun,
@@ -476,106 +505,141 @@ def do_build_img_from_iso(
             check=True,
         )
 
+        if result is None:
+            raise RuntimeError("losetup returned no output (dry-run?)")
+
         loopdevice = Path(result.stdout.strip())
         logging.info(f"loopdevice:\n{shlex.quote(str(loopdevice))}")
-    except subprocess.CalledProcessError as err:
-        logging.error(f"losetup failed: {err.stderr}")
-        sys.exit(1)
+        # except subprocess.CalledProcessError as err:
+        #    logging.error(f"losetup failed: {err.stderr}")
+        #    sys.exit(1)
 
-    subprocess_run_wrapper(
-        cmd=(f"kpartx -av {shlex.quote(str(loopdevice))}"),
-        dryrun=dryrun,
-    )
+        subprocess_run_wrapper(
+            cmd=(f"kpartx -av {shlex.quote(str(loopdevice))}"),
+            dryrun=dryrun,
+        )
 
-    part1 = Path("/dev/mapper") / (loopdevice.name + "p1")
-    part2 = Path("/dev/mapper") / (loopdevice.name + "p2")
+        part1 = Path("/dev/mapper") / (loopdevice.name + "p1")
+        part2 = Path("/dev/mapper") / (loopdevice.name + "p2")
+        part3 = Path("/dev/mapper") / (loopdevice.name + "p3")
 
-    logging.info("Formatting and mounting partitions")
+        logging.info("Formatting and mounting partitions")
 
-    subprocess_run_wrapper(
-        cmd=(f"mkfs.vfat -F 32 -n {efilabel} {shlex.quote(str(part1))}"),
-        dryrun=dryrun,
-    )
-    subprocess_run_wrapper(
-        cmd=(f"mount {shlex.quote(str(part1))} {shlex.quote(str(efipath))}"),
-        dryrun=dryrun,
-    )
-    # subprocess_run_wrapper(
-    #     cmd=(f"mkfs.ext4 -L {cdlabel} {shlex.quote(str(part2))}"),
-    #     dryrun=dryrun,
-    # )
-    subprocess_run_wrapper(
-        cmd=(
-            f"mkfs.btrfs --data single --metadata dup -L {cdlabel} {shlex.quote(str(part2))}"
-        ),
-        dryrun=dryrun,
-    )
-    subprocess_run_wrapper(
-        cmd=(f"mount {shlex.quote(str(part2))} {shlex.quote(str(cdpath))}"),
-        dryrun=dryrun,
-    )
+        subprocess_run_wrapper(
+            cmd=(f"mkfs.vfat -F 32 -n {efilabel} {shlex.quote(str(part1))}"),
+            dryrun=dryrun,
+        )
+        subprocess_run_wrapper(
+            cmd=(f"mount {shlex.quote(str(part1))} {shlex.quote(str(efipath))}"),
+            dryrun=dryrun,
+        )
+        # subprocess_run_wrapper(
+        #     cmd=(f"mkfs.ext4 -L {cdlabel} {shlex.quote(str(part2))}"),
+        #     dryrun=dryrun,
+        # )
+        subprocess_run_wrapper(
+            cmd=(
+                f"mkfs.btrfs --data single --metadata dup -L {cdlabel} {shlex.quote(str(part2))}"
+            ),
+            dryrun=dryrun,
+        )
+        subprocess_run_wrapper(
+            cmd=(f"mount {shlex.quote(str(part2))} {shlex.quote(str(cdpath))}"),
+            dryrun=dryrun,
+        )
 
-    subprocess_run_wrapper(
-        cmd=(
-            "grub-install "
-            f"--efi-directory={shlex.quote(str(efipath))} "
-            f"--boot-directory={shlex.quote(str(efipath))} "
-            "--target=x86_64-efi "
-            "--no-nvram "
-            "--removable "
-            "--uefi-secure-boot "
-        ),
-        dryrun=dryrun,
-    )
+        subprocess_run_wrapper(
+            cmd=(
+                f"mkfs.btrfs --data single --metadata dup -L {extralabel} {shlex.quote(str(part3))}"
+            ),
+            dryrun=dryrun,
+        )
+        subprocess_run_wrapper(
+            cmd=(f"mount {shlex.quote(str(part3))} {shlex.quote(str(extrapath))}"),
+            dryrun=dryrun,
+        )
 
-    subprocess_run_wrapper(
-        cmd=(
-            "rsync "
-            "-av "
-            "--exclude=EFI/ "
-            f"{shlex.quote(str(isopath) + '/')} "
-            f"{shlex.quote(str(cdpath) + '/')}"
-        ),
-        dryrun=dryrun,
-    )
+        subprocess_run_wrapper(
+            cmd=(
+                "grub-install "
+                f"--efi-directory={shlex.quote(str(efipath))} "
+                f"--boot-directory={shlex.quote(str(efipath))} "
+                "--target=x86_64-efi "
+                "--no-nvram "
+                "--removable "
+                "--uefi-secure-boot "
+            ),
+            dryrun=dryrun,
+        )
 
-    (efipath / "EFI" / "BOOT").mkdir(parents=True, exist_ok=True)
+        subprocess_run_wrapper(
+            cmd=(
+                "rsync "
+                "-av "
+                "--exclude=EFI/ "
+                f"{shlex.quote(str(isopath) + '/')} "
+                f"{shlex.quote(str(cdpath) + '/')}"
+            ),
+            dryrun=dryrun,
+        )
 
-    subprocess_run_wrapper(
-        cmd=(
-            "rsync "
-            "-av "
-            "/usr/local/etc/grub.cfg "
-            f"{shlex.quote(str(efipath / 'EFI' / 'BOOT'))} "
-        ),
-        dryrun=dryrun,
-    )
+        (efipath / "EFI" / "BOOT").mkdir(parents=True, exist_ok=True)
 
-    subprocess_run_wrapper(
-        cmd=(f"umount {shlex.quote(str(efipath))}"),
-        dryrun=dryrun,
-    )
+        subprocess_run_wrapper(
+            cmd=(
+                "rsync "
+                "-av "
+                "/usr/local/etc/grub.cfg "
+                f"{shlex.quote(str(efipath / 'EFI' / 'BOOT'))} "
+            ),
+            dryrun=dryrun,
+        )
 
-    subprocess_run_wrapper(
-        cmd=(f"umount {shlex.quote(str(cdpath))}"),
-        dryrun=dryrun,
-    )
+        subprocess_run_wrapper(
+            cmd=(
+                "rsync "
+                "-av "
+                f"{shlex.quote(str(extrafilesdir) + '/')} "
+                f"{shlex.quote(str(extrapath) + '/')}"
+            ),
+            dryrun=dryrun,
+        )
 
-    logging.info("Cleaning up")
-    subprocess_run_wrapper(
-        cmd=(f"kpartx -d {shlex.quote(str(loopdevice))}"),
-        dryrun=dryrun,
-    )
+    finally:
+        if efipath.exists() and os.path.ismount(str(efipath)):
+            subprocess_run_wrapper(
+                cmd=(f"umount {shlex.quote(str(efipath))}"),
+                dryrun=dryrun,
+            )
 
-    subprocess_run_wrapper(
-        cmd=(f"losetup -d {shlex.quote(str(loopdevice))}"),
-        dryrun=dryrun,
-    )
+        if cdpath.exists() and os.path.ismount(str(cdpath)):
+            subprocess_run_wrapper(
+                cmd=(f"umount {shlex.quote(str(cdpath))}"),
+                dryrun=dryrun,
+            )
 
-    subprocess_run_wrapper(
-        cmd=(f"umount {shlex.quote(str(isopath))}"),
-        dryrun=dryrun,
-    )
+        if extrapath.exists() and os.path.ismount(str(extrapath)):
+            subprocess_run_wrapper(
+                cmd=(f"umount {shlex.quote(str(extrapath))}"),
+                dryrun=dryrun,
+            )
+
+        logging.info("Cleaning up")
+        if loopdevice:
+            subprocess_run_wrapper(
+                cmd=(f"kpartx -d {shlex.quote(str(loopdevice))}"),
+                dryrun=dryrun,
+            )
+
+            subprocess_run_wrapper(
+                cmd=(f"losetup -d {shlex.quote(str(loopdevice))}"),
+                dryrun=dryrun,
+            )
+
+        subprocess_run_wrapper(
+            cmd=(f"umount {shlex.quote(str(isopath))}"),
+            dryrun=dryrun,
+        )
 
     logging.info(f"Disk image {imgfilefull} created successfully")
 
@@ -590,6 +654,7 @@ def main():
     faimirrordir = get_path(FAIMIRRORDIRPATH)
     fainfsetcdir = get_path(FAINFSETCDIRPATH)
     fainfsrootdir = get_path(FAINFSROOTDIRPATH)
+    extrafilesdir = get_path(EXTRAFILESDIRPATH)
     outputdir = get_path(OUTPUTDIRPATH)
 
     logging.info(f"basefilesdir: {shlex.quote(str(basefilesdir))}")
@@ -598,7 +663,10 @@ def main():
     logging.info(f"faimirrordir: {shlex.quote(str(faimirrordir))}")
     logging.info(f"fainfsetcdir: {shlex.quote(str(fainfsetcdir))}")
     logging.info(f"fainfsrootdir: {shlex.quote(str(fainfsrootdir))}")
+    logging.info(f"extrafilesdir: {shlex.quote(str(extrafilesdir))}")
     logging.info(f"outputdir: {shlex.quote(str(outputdir))}")
+
+    extrafilesdir.mkdir(parents=True, exist_ok=True)
 
     # 0
     root_uid = pwd.getpwnam("root").pw_uid
@@ -769,6 +837,7 @@ def main():
 
     do_build_img_from_iso(
         isofilefull=outputdir / outfile,
+        extrafilesdir=extrafilesdir,
         dryrun=dryrun,
     )
 

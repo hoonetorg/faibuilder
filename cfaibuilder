@@ -11,6 +11,8 @@ import subprocess
 import shlex
 
 import json
+import re
+import time
 
 
 APPNAME = "faibuilder"
@@ -41,6 +43,144 @@ def get_path(path: str) -> Path:
 
 def is_readable_file(file: Path) -> bool:
     return file.exists() and file.is_file() and os.access(file, os.R_OK)
+
+
+def get_existing_loopdevs() -> list[str]:
+    result = []
+    for p in sorted(Path("/dev").glob("loop[0-9]*")):
+        if p.name[4:].isdigit():
+            result.append(str(p))
+    return result
+
+
+def get_attached_loopdevs(dryrun: bool = False) -> set[str]:
+    result = subprocess_run_wrapper(
+        cmd="losetup -a",
+        dryrun=dryrun,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    if result is None:
+        return set()
+
+    attached = set()
+    for line in result.stdout.splitlines():
+        m = re.match(r"^(/dev/loop[0-9]+):", line)
+        if m:
+            attached.add(m.group(1))
+    return attached
+
+
+def get_free_loopdev_count(dryrun: bool = False) -> tuple[int, list[str], set[str]]:
+    existing = get_existing_loopdevs()
+    attached = get_attached_loopdevs(dryrun=dryrun)
+    free_count = len([dev for dev in existing if dev not in attached])
+    return free_count, existing, attached
+
+
+def ensure_host_loop_devices(
+    desired_count: int = 64,
+    tmpdir: Path = Path("/tmp/faibuilder-loopdev-init"),
+    dryrun: bool = False,
+) -> None:
+    if desired_count < 1:
+        raise ValueError("desired_count must be >= 1")
+
+    attached_temp_loopdevs: list[str] = []
+    created_files: list[Path] = []
+
+    free_count, existing_before, attached_before = get_free_loopdev_count(dryrun=dryrun)
+
+    logging.info(f"existing loopdevs: {len(existing_before)}")
+    logging.info(f"attached loopdevs: {len(attached_before)}")
+    logging.info(f"free loopdevs: {free_count}")
+    logging.info(f"desired free loopdevs: {desired_count}")
+
+    if free_count >= desired_count:
+        logging.info(
+            f"Already enough free loop devices exist ({free_count} >= {desired_count}), nothing to do"
+        )
+        return
+
+    additional_needed = desired_count - free_count
+    logging.info(
+        f"Need to prepare {desired_count} loop device(s)\n  (1st fill up free and then create additional {additional_needed} loop device(s))"
+    )
+
+    try:
+        tmpdir.mkdir(parents=True, exist_ok=True)
+
+        for i in range(desired_count):
+            backing_file = tmpdir / f"loop-prep-{i}.img"
+            created_files.append(backing_file)
+
+            logging.info(f"Creating temporary backing file {backing_file}")
+            if not dryrun:
+                with backing_file.open("wb") as f:
+                    f.truncate(4096)
+
+            result = subprocess_run_wrapper(
+                cmd=f"losetup --show -f {shlex.quote(str(backing_file))}",
+                dryrun=dryrun,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            if result is not None:
+                loopdev = result.stdout.strip()
+                attached_temp_loopdevs.append(loopdev)
+                logging.info(f"Attached {backing_file} to {loopdev}")
+
+    finally:
+        for loopdev in reversed(attached_temp_loopdevs):
+            try:
+                subprocess_run_wrapper(
+                    cmd=f"losetup -d {shlex.quote(loopdev)}",
+                    dryrun=dryrun,
+                    check=True,
+                )
+                logging.info(f"Detached temporary loop device {loopdev}")
+            except Exception as e:
+                logging.warning(f"Failed to detach {loopdev}: {e}")
+
+        for backing_file in created_files:
+            try:
+                if dryrun:
+                    logging.info(f"[DRYRUN] unlink {backing_file}")
+                elif backing_file.exists():
+                    backing_file.unlink()
+                    logging.info(f"Deleted temporary file {backing_file}")
+            except Exception as e:
+                logging.warning(f"Failed to delete {backing_file}: {e}")
+
+        try:
+            if dryrun:
+                logging.info(f"[DRYRUN] rmdir {tmpdir}")
+            elif tmpdir.exists() and not any(tmpdir.iterdir()):
+                tmpdir.rmdir()
+                logging.info(f"Deleted temporary directory {tmpdir}")
+        except Exception as e:
+            logging.warning(f"Failed to remove temp directory {tmpdir}: {e}")
+
+    for ucmd in ["trigger", "settle"]:
+        subprocess_run_wrapper(cmd=f"udevadm {shlex.quote(ucmd)}", dryrun=dryrun)
+        time.sleep(5)
+
+    free_count_after, existing_after, attached_after = get_free_loopdev_count(
+        dryrun=dryrun
+    )
+    logging.info(f"existing loopdevs after preparation: {len(existing_after)}")
+    logging.info(f"attached loopdevs after preparation: {len(attached_after)}")
+    logging.info(f"free loopdevs after preparation: {free_count_after}")
+
+    if free_count_after < desired_count:
+        raise RuntimeError(
+            f"Loop device preparation did not reach desired free count: "
+            f"{free_count_after} < {desired_count}"
+        )
 
 
 def build_image(sourcedir: Path, dryrun: bool = False):
@@ -83,6 +223,7 @@ def build(
     faimirrordir: Path,
     fainfsetcdir: Path,
     fainfsrootdir: Path,
+    extrafilesdir: Path,
     outputdir: Path,
     args: list,
     dryrun: bool = False,
@@ -91,28 +232,35 @@ def build(
     if interactive:
         ctrargs += "-it --entrypoint /bin/bash "
 
+    ensure_host_loop_devices(desired_count=3, dryrun=dryrun)
+
+    cmd = (
+        "podman "
+        "run "
+        "--pids-limit=-1 "
+        f"--name {shlex.quote(str(IMAGENAME))} "
+        "--privileged "
+        f"{ctrargs}"
+        f"-w {shlex.quote(str(WORKSPACE))} "
+        f"-v {shlex.quote(str(globalconffile))}:/srv/fai/faibuilder.json:ro,z "
+        f"-v {shlex.quote(str(hostconffile))}:/srv/fai/host.json:ro,z "
+        f"-v {shlex.quote(str(acngdir))}:/var/cache/apt-cacher-ng:z "
+        f"-v {shlex.quote(str(basefilesdir))}:/srv/fai/basefiles:z "
+        f"-v {shlex.quote(str(faietcdir))}:/srv/fai/etc:ro,z "
+        f"-v {shlex.quote(str(faiconfigdir))}:/srv/fai/config:z "
+        f"-v {shlex.quote(str(faimirrordir))}:/srv/fai/mirror:z "
+        f"-v {shlex.quote(str(fainfsetcdir))}:/srv/fai/nfsetc:ro,z "
+        f"-v {shlex.quote(str(fainfsrootdir))}:/srv/fai/nfsroot:z "
+        f"-v {shlex.quote(str(outputdir))}:/srv/fai/output:z "
+    )
+
+    if extrafilesdir and extrafilesdir.exists():
+        cmd += f"-v {shlex.quote(str(extrafilesdir))}:/srv/fai/extrafiles:z "
+
+    cmd += f"{shlex.quote(str(IMAGENAME))} {' '.join(shlex.quote(a) for a in args)}"
+
     subprocess_run_wrapper(
-        cmd=(
-            "podman "
-            "run "
-            "--pids-limit=-1 "
-            f"--name {shlex.quote(str(IMAGENAME))} "
-            "--privileged "
-            f"{ctrargs}"
-            f"-w {shlex.quote(str(WORKSPACE))} "
-            f"-v {shlex.quote(str(globalconffile))}:/srv/fai/faibuilder.json:ro,z "
-            f"-v {shlex.quote(str(hostconffile))}:/srv/fai/host.json:ro,z "
-            f"-v {shlex.quote(str(acngdir))}:/var/cache/apt-cacher-ng:z "
-            f"-v {shlex.quote(str(basefilesdir))}:/srv/fai/basefiles:z "
-            f"-v {shlex.quote(str(faietcdir))}:/srv/fai/etc:ro,z "
-            f"-v {shlex.quote(str(faiconfigdir))}:/srv/fai/config:z "
-            f"-v {shlex.quote(str(faimirrordir))}:/srv/fai/mirror:z "
-            f"-v {shlex.quote(str(fainfsetcdir))}:/srv/fai/nfsetc:ro,z "
-            f"-v {shlex.quote(str(fainfsrootdir))}:/srv/fai/nfsroot:z "
-            f"-v {shlex.quote(str(outputdir))}:/srv/fai/output:z "
-            f"{shlex.quote(str(IMAGENAME))} "
-            f"{' '.join(shlex.quote(a) for a in args)}"
-        ),
+        cmd=cmd,
         dryrun=dryrun,
         check=True,
     )
@@ -196,6 +344,9 @@ if __name__ == "__main__":
     faimirrordir = get_path(hostconf["faimirrordir"])
     fainfsetcdir = get_path(f"{globalconf["fainfsetcdir"]}/{etcsubdir}")
     fainfsrootdir = get_path(globalconf["fainfsrootdir"])
+    extrafilesdir = None
+    if "extrafilesdir" in hostconf and hostconf["extrafilesdir"]:
+        extrafilesdir = get_path(hostconf["extrafilesdir"])
     outputdir = get_path(globalconf["outputdir"])
 
     outfile = Path(hostconf["outfile"])
@@ -207,6 +358,7 @@ if __name__ == "__main__":
     logging.info(f"faimirrordir: {shlex.quote(str(faimirrordir))}")
     logging.info(f"fainfsetcdir: {shlex.quote(str(fainfsetcdir))}")
     logging.info(f"fainfsrootdir: {shlex.quote(str(fainfsrootdir))}")
+    logging.info(f"extrafilesdir: {shlex.quote(str(extrafilesdir))}")
     logging.info(f"outputdir: {shlex.quote(str(outputdir))}")
     logging.info(f"outfile: {shlex.quote(str(outfile))}")
 
@@ -221,6 +373,7 @@ if __name__ == "__main__":
         faimirrordir=faimirrordir,
         fainfsetcdir=fainfsetcdir,
         fainfsrootdir=fainfsrootdir,
+        extrafilesdir=extrafilesdir,
         outputdir=outputdir,
         args=passthrough,
         dryrun=dryrun,
