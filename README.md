@@ -2,10 +2,11 @@
 
 ## Quickstart
 
-sudo <srcdir>/cfaibuilder --build --sourcedir <srcdir>
-sudo <srcdir>/cfaibuilder --export-image <ctrdir>/faibuilder.ctr
-sudo <srcdir>/cfaibuilder --import-image <ctrdir>/faibuilder.ctr
+`sudo <srcdir>/cfaibuilder --sourcedir <srcdir> --build`
 
+`sudo <srcdir>/cfaibuilder --export-image <ctrdir>/faibuilder.ctr`
+
+`sudo <srcdir>/cfaibuilder --import-image <ctrdir>/faibuilder.ctr`
 
 ## FIXME: cleanup below
 FAI executes hooks **before** the corresponding task is run.  As the guide states:
