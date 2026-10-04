@@ -318,7 +318,27 @@ def do_build_iso(
     disklayoutid = str(hostconf["disklayoutid"])
     diskpath = Path(hostconf["diskpath"])
     startpartition = int(hostconf.get("startpartition", int(-1)))
+
+    # partition numbers as in ksbuilder: p1 ESP, boot (XBOOTLDR, bls_boot), root (LUKS), swap (LUKS)
+    match disklayoutid:
+        case "singleos":
+            bootnumber = 2
+            blsnumber = 2
+            rootnumber = 3
+            swapnumber = 4
+        case "multios":
+            bootnumber = startpartition
+            blsnumber = startpartition
+            rootnumber = startpartition + 1
+            swapnumber = startpartition + 2
+        case _:
+            logging.error(f"Unknown disklayoutid {disklayoutid} - exiting")
+            sys.exit(1)
+
+    efisizemib = int(hostconf.get("efisizemib", 2047))
+    bootsizemib = int(hostconf.get("bootsizemib", 2048))
     rootsizemib = int(hostconf["rootsizemib"])
+    swapsizemib = int(hostconf.get("swapsizemib", 2048))
     cryptpw = str(hostconf["cryptpw"])
     outfile = Path(hostconf["outfile"])
 
@@ -341,7 +361,14 @@ def do_build_iso(
     logging.info(f"disklayoutid: {shlex.quote(str(disklayoutid))}")
     logging.info(f"diskpath: {shlex.quote(str(diskpath))}")
     logging.info(f"startpartition: {int(startpartition)}")
+    logging.info(f"bootnumber: {int(bootnumber)}")
+    logging.info(f"blsnumber: {int(blsnumber)}")
+    logging.info(f"rootnumber: {int(rootnumber)}")
+    logging.info(f"swapnumber: {int(swapnumber)}")
+    logging.info(f"efisizemib: {int(efisizemib)}")
+    logging.info(f"bootsizemib: {int(bootsizemib)}")
     logging.info(f"rootsizemib: {int(rootsizemib)}")
+    logging.info(f"swapsizemib: {int(swapsizemib)}")
     logging.info("cryptpw: hidden")
     logging.info(f"outfile: {shlex.quote(str(outfile))}")
 
@@ -373,16 +400,30 @@ def do_build_iso(
         f"DISKLAYOUTID={shlex.quote(str(disklayoutid))}\n"
         f"DISKPATH={shlex.quote(str(diskpath))}\n"
         f"STARTPARTITION={int(startpartition)}\n"
+        f"BOOTNUMBER={int(bootnumber)}\n"
+        f"BLSNUMBER={int(blsnumber)}\n"
+        f"ROOTNUMBER={int(rootnumber)}\n"
+        f"SWAPNUMBER={int(swapnumber)}\n"
+        f"EFISIZEMIB={int(efisizemib)}\n"
+        f"BOOTSIZEMIB={int(bootsizemib)}\n"
         f"ROOTSIZEMIB={int(rootsizemib)}\n"
+        f"SWAPSIZEMIB={int(swapsizemib)}\n"
         f"CRYPTPW={shlex.quote(str(cryptpw))}\n"
     )
 
+    # never log secrets: passwords and the LUKS passphrase are masked in the log output
+    logged = "\n".join(
+        f"{line.split('=', 1)[0]}=hidden"
+        if line.split("=", 1)[0] in ("ROOTPW", "USERPW", "CRYPTPW")
+        else line
+        for line in content.strip().splitlines()
+    )
     if dryrun:
         logging.info(
-            f"[DRYRUN] Would write to {shlex.quote(str(variablesfile))}\n{content.strip()}"
+            f"[DRYRUN] Would write to {shlex.quote(str(variablesfile))}\n{logged}"
         )
     else:
-        logging.info(f"Writing to {shlex.quote(str(variablesfile))}\n{content.strip()}")
+        logging.info(f"Writing to {shlex.quote(str(variablesfile))}\n{logged}")
         variablesfile.write_text(content)
 
     subprocess_run_wrapper(
@@ -700,7 +741,9 @@ def main():
         sys.exit(1)
     logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
     hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
-    logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
+    # never log secrets: passwords and the LUKS passphrase are masked
+    hostconf_logged = {k: ('hidden' if k in ('cryptpw', 'userpw', 'rootpw') else v) for k, v in hostconf.items()}
+    logging.info(f"hostconf:\n{json.dumps(hostconf_logged, indent=2)}")
 
     faiclasses = hostconf["faiclasses"]
     basefile = Path(hostconf["basefile"])

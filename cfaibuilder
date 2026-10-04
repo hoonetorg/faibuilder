@@ -399,7 +399,9 @@ if __name__ == "__main__":
         sys.exit(1)
     logging.info(f"hostconffile: {shlex.quote(str(hostconffile))}")
     hostconf = json.loads(hostconffile.read_text(encoding="utf-8"))
-    logging.info(f"hostconf:\n{json.dumps(hostconf, indent=2)}")
+    # never log secrets: passwords and the LUKS passphrase are masked
+    hostconf_logged = {k: ('hidden' if k in ('cryptpw', 'userpw', 'rootpw') else v) for k, v in hostconf.items()}
+    logging.info(f"hostconf:\n{json.dumps(hostconf_logged, indent=2)}")
 
     acngdir = get_path(globalconf["acngdir"])
     basefilesdir = get_path(globalconf["basefilesdir"])

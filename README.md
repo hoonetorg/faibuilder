@@ -8,6 +8,29 @@
 
 `sudo <srcdir>/cfaibuilder --import-image <ctrdir>/faibuilder.ctr`
 
+## Disk layout (host.json)
+
+`hooks/partition.FBONECRYPT_EFI` in fai-config is the same script as the KS/Agama pre-script in ksbuilder
+(`ksfiles/autoinst_osl_fde.jsonnet`); only its input block differs. faibuilder writes the values to
+`class/FB.var` (git-ignored; secrets are masked in the log output).
+
+| key | required | default | meaning |
+|---|---|---|---|
+| `disklayoutid` | yes | | `singleos` or `multios` |
+| `diskpath` | yes | | target disk, `/dev/disk/by-id/...` |
+| `startpartition` | no | `-1` | first partition number of this OS, `multios` only |
+| `efisizemib` | no | `2047` | ESP (created only on `singleos`); 2047: ends at 2 GiB, the following partitions stay GiB-aligned |
+| `bootsizemib` | no | `2048` | `/boot` (btrfs, XBOOTLDR type) |
+| `rootsizemib` | yes | | LUKS2 root (btrfs) |
+| `swapsizemib` | no | `2048` | LUKS2 swap |
+| `cryptpw` | yes | | LUKS passphrase for root and swap |
+
+Partition numbers (as in ksbuilder): `singleos` 1 ESP, 2 /boot, 3 root, 4 swap; `multios` boot =
+`startpartition`, root = +1, swap = +2 (ESP = 1 is reused).
+
+The hook only partitions a completely empty disk (`wipefs` finds no signature) or reinstalls onto exactly
+the expected partitions; anything else stops before writing.
+
 ## FIXME: cleanup below
 FAI executes hooks **before** the corresponding task is run.  As the guide states:
 
